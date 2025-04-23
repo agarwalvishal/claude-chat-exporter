@@ -7,7 +7,7 @@ function extractConversation() {
     const role = isHuman ? 'Human' : 'Claude';
     markdown += `## ${role}:\n\n`;
     
-    const content = isHuman ? message : message.querySelector('.grid-col-1');
+    const content = isHuman ? message : message.querySelector('.grid-cols-1');
     if (content) {
       markdown += processContent(content);
     }
@@ -37,7 +37,7 @@ function processContent(element, depth = 0) {
           markdown += processList(child, 'ul', depth) + "\n";
           break;
         case 'PRE':
-          const codeBlock = child.querySelector('.code-block__code');
+          const codeBlock = child.querySelector('code');
           if (codeBlock) {
             const language = codeBlock.className.match(/language-(\w+)/)?.[1] || '';
             markdown += "```" + language + "\n" + codeBlock.textContent.trim() + "\n```\n\n";
