@@ -7,9 +7,9 @@ function extractConversation() {
     const role = isHuman ? 'Human' : 'Claude';
     markdown += `## ${role}:\n\n`;
     
-    const content = isHuman ? message : message.querySelector('.grid-cols-1');
+    const content = isHuman ? message : message.querySelectorAll('.grid-cols-1');
     if (content) {
-      markdown += processContent(content);
+      markdown += processContent(content?.length == undefined ? content : content[content.length - 1]);
     }
     
     markdown += "\n";
@@ -105,3 +105,4 @@ function downloadMarkdown(content, filename) {
 
 const conversationMarkdown = extractConversation();
 downloadMarkdown(conversationMarkdown, 'claude_conversation.md');
+
