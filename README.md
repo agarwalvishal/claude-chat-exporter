@@ -1,15 +1,15 @@
 # Claude Chat Exporter
 
-Claude Chat Exporter is a JavaScript tool that allows you to export your conversations with Claude AI into a well-formatted Markdown file. This script captures both human and AI messages, preserving the structure of the conversation including nested lists, code blocks, and inline formatting.
+Claude Chat Exporter is a JavaScript tool that allows you to export your conversations with Claude AI into a well-formatted Markdown file. This script intelligently captures human and AI messages while filtering out thinking blocks and technical artifacts, preserving only the actual conversation content with proper structure and formatting.
 
 ## Features
 
-- Exports conversations from Claude AI interface to Markdown format
-- Preserves conversation structure (Human/Claude alternation)
-- Handles nested lists (both ordered and unordered)
-- Formats code blocks with language specification
-- Maintains inline code formatting
-- Generates a downloadable Markdown file
+- **Smart Content Filtering**: Automatically excludes Claude's thinking blocks and artifacts, exporting only the actual conversation
+- **Conversation Structure Preservation**: Maintains Human/Claude alternation with proper markdown headers
+- **Rich Content Support**: Handles nested lists, code blocks, inline formatting, headers, blockquotes, and links
+- **Clean Code Block Formatting**: Properly formats code blocks with language specification
+- **Robust DOM Parsing**: Works with Claude's current interface structure including collapsible thinking sections
+- **One-Click Export**: Generates a downloadable Markdown file with a single script execution
 
 ## Usage
 
@@ -26,29 +26,59 @@ Claude Chat Exporter is a JavaScript tool that allows you to export your convers
 
 The script performs the following steps:
 
-1. Identifies and extracts all messages in the conversation.
-2. Processes each message, differentiating between Human and Claude responses.
-3. Handles various elements within each message, including paragraphs, lists, and code blocks.
-4. Formats the content into Markdown syntax.
-5. Generates a downloadable Markdown file containing the formatted conversation.
+1. **Message Identification**: Locates all conversation messages using CSS selectors
+2. **Content Filtering**: Distinguishes between actual responses and thinking blocks/artifacts
+3. **Smart Processing**: Extracts content while maintaining proper formatting
+4. **Markdown Conversion**: Transforms HTML structure into clean Markdown syntax
+5. **File Generation**: Creates and downloads a formatted Markdown file
+
+## Key Functions
+
+### Core Functions
+- `extractConversation()`: Main orchestrator that controls the overall export process
+- `extractClaudeResponse()`: Filters Claude messages to extract only actual response content
+- `processContent()`: Processes individual message content with shared accumulator for proper formatting
+
+### Content Processing
+- `processList()`: Handles nested lists (ordered and unordered) with proper indentation
+- `processInlineElements()`: Manages inline formatting (code, bold, italic, links)
+
+### Smart Filtering
+- `isThinkingBlock()`: Identifies and excludes Claude's thinking blocks using `transition-all` class detection
+- `isArtifactBlock()`: Detects and optionally excludes artifact containers
+
+### Utility Functions
+- `downloadMarkdown()`: Generates and triggers download of the exported file
+
+## Advanced Features
+
+- **Thinking Block Detection**: Uses unique CSS class identifiers to reliably skip thinking content
+- **Nested Content Handling**: Properly processes deeply nested DOM structures with shared state
+- **Format Preservation**: Maintains original formatting including headers, blockquotes, and complex list structures
 
 ## Customization
 
-You can modify the script to change the output format or add additional features. Key functions that you might want to customize include:
+You can modify the script to change the output format or add additional features:
 
-- `extractConversation()`: Controls the overall structure of the exported document.
-- `processContent()`: Handles the processing of individual message content.
-- `processList()`: Manages the formatting of lists, including nested lists.
-- `processInlineElements()`: Deals with inline formatting like code snippets.
+- **Content Selection**: Modify `isThinkingBlock()` or `isArtifactBlock()` to change what content gets filtered
+- **Output Format**: Customize `processContent()` to change markdown formatting rules
+- **File Naming**: Update the `downloadMarkdown()` call to change the output filename
+- **Additional Elements**: Extend the switch statement in `processContent()` to handle new HTML elements
 
 ## Limitations
 
-- The script is designed to work with the current Claude AI interface. Changes to the interface may require updates to the script.
-- It may not capture all types of interactive elements or complex structures that could be present in Claude's responses.
+- Designed for the current Claude AI interface (as of 2025)
+- Interface changes may require updates to CSS selectors or DOM structure handling
+- Complex interactive elements or custom widgets may not be fully captured
+- Artifact content is currently skipped (can be enabled by modifying `isArtifactBlock()`)
 
 ## Contributing
 
 Contributions to improve the script or add new features are welcome! Please feel free to submit a pull request or open an issue to discuss potential changes.
+
+Areas for potential enhancement:
+- Support for artifact content inclusion
+- Batch processing of multiple conversations
 
 ## License
 
