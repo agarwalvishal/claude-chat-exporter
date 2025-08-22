@@ -1,22 +1,22 @@
 function extractConversation() {
   let markdown = "# Conversation with Claude\n\n";
-  const messages = document.querySelectorAll('.font-claude-message, .font-user-message');
+  const messages = document.querySelectorAll('.font-claude-response, [data-testid="user-message"]');
   
   messages.forEach((message) => {
-    const isHuman = message.classList.contains('font-user-message');
-    const role = isHuman ? 'Human' : 'Claude';
-    markdown += `## ${role}:\n\n`;
+    const isHuman = message.hasAttribute('data-testid') && message.getAttribute('data-testid') === 'user-message';
     
     if (isHuman) {
       // For human messages, process the entire message
+      // Look for the actual content grid within the user message
+      const contentGrid = message.querySelector('.grid-cols-1') || message;
       const result = { markdown: '' };
-      processContent(message, result);
-      markdown += result.markdown;
+      processContent(contentGrid, result);
+      markdown += `## Human:\n\n${result.markdown}`;
     } else {
       // For Claude messages, extract only the non-thinking content
       const responseContent = extractClaudeResponse(message);
       if (responseContent) {
-        markdown += responseContent;
+        markdown += `## Claude:\n\n${responseContent}`;
       }
     }
     
@@ -29,27 +29,26 @@ function extractConversation() {
 function extractClaudeResponse(claudeMessage) {
   let responseMarkdown = '';
   
-  // Get all direct children of the Claude message
-  const children = Array.from(claudeMessage.children);
+  // Find all grid-cols-1 elements within the response
+  const contentGrids = claudeMessage.querySelectorAll('.grid-cols-1');
   
-  children.forEach(child => {
-    // Skip thinking blocks - they have transition-all class
-    if (isThinkingBlock(child)) {
+  contentGrids.forEach(grid => {
+    // Check if this grid is inside a thinking block container
+    const parentContainer = grid.closest('.transition-all');
+    
+    // Skip if it's in a collapsible thinking block (has the expand/collapse button)
+    if (parentContainer && parentContainer.querySelector('button[class*="group/row"]')) {
       return; // Skip thinking blocks
     }
     
-    // Skip artifact containers (they're handled separately if needed)
-    if (isArtifactBlock(child)) {
-      return; // Skip artifacts for now - could be added later if needed
+    // Also skip if it's nested inside another grid we're already processing
+    if (grid.closest('.grid-cols-1') !== grid) {
+      return;
     }
     
-    // Process content blocks - look for .grid-cols-1 within non-thinking containers
-    const contentGrid = child.querySelector('.grid-cols-1');
-    if (contentGrid) {
-      const result = { markdown: '' };
-      processContent(contentGrid, result);
-      responseMarkdown += result.markdown;
-    }
+    const result = { markdown: '' };
+    processContent(grid, result);
+    responseMarkdown += result.markdown;
   });
   
   return responseMarkdown;
@@ -57,13 +56,12 @@ function extractClaudeResponse(claudeMessage) {
 
 function isThinkingBlock(element) {
   // transition-all is unique to thinking blocks
-  return element.className.includes('transition-all');
+  return element.classList.contains('transition-all');
 }
-
 function isArtifactBlock(element) {
   // Artifact blocks have pt-3 pb-3 classes and contain artifact-related content
-  const classes = element.className;
-  return classes.includes('pt-3') && classes.includes('pb-3') ||
+  const classes = element.classList;
+  return classes.contains('pt-3') && classes.contains('pb-3') ||
          element.querySelector('.artifact-block-cell') !== null;
 }
 
@@ -213,5 +211,4 @@ function downloadMarkdown(content, filename) {
 }
 
 // Run the exporter
-const conversationMarkdown = extractConversation();
-downloadMarkdown(conversationMarkdown, 'claude_conversation.md');
+downloadMarkdown(extractConversation(), 'claude_conversation.md');
