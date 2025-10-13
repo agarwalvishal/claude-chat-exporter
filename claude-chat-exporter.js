@@ -57,6 +57,7 @@ function setupClaudeExporter() {
     editButton = Array.from(allButtons).find(btn =>
       btn.textContent.trim().toLowerCase() === 'edit'
     );
+    if (!editButton) return allButtons[1];
 
     return editButton;
   }
