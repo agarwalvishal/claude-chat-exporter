@@ -127,7 +127,7 @@ const SELECTORS = {
   copyButton: 'button[data-testid="action-bar-copy"]',
   editTextarea: "textarea",
   conversationTitle:
-    '[data-testid="chat-menu-trigger"] .truncate, button[data-testid="chat-menu-trigger"] div.truncate',
+    '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
 };
 ```
 
