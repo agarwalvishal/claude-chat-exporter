@@ -225,8 +225,9 @@ function setupClaudeExporter() {
       statusDiv.textContent = `Error: ${error.message}`;
       statusDiv.style.background = '#f44336';
       console.error('Export failed:', error);
+    } finally {
+      cleanup();
     }
-  }
 
   function completeExport() {
     interceptorActive = false;
