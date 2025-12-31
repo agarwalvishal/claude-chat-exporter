@@ -2,6 +2,7 @@ function setupClaudeExporter() {
   const originalWriteText = navigator.clipboard.writeText;
   const capturedResponses = [];
   const humanMessages = [];
+  let conversationData = null;
   let interceptorActive = true;
 
   // DOM Selectors - easily modifiable if Claude's UI changes
@@ -37,7 +38,79 @@ function setupClaudeExporter() {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  // Format ISO timestamp to readable format
+  function formatTimestamp(isoString) {
+    if (!isoString) return null;
+    return new Date(isoString).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit'
+    });
+  }
+
+  // Fetch conversation data from Claude API to get timestamps
+  async function fetchConversationData() {
+    try {
+      const conversationId = window.location.pathname.split('/').pop();
+      const orgId = document.cookie.match(/lastActiveOrg=([^;]+)/)?.[1];
+
+      if (!conversationId || !orgId) {
+        console.warn('Could not get conversation/org ID');
+        return null;
+      }
+
+      const url = `/api/organizations/${orgId}/chat_conversations/${conversationId}?tree=true&rendering_mode=messages&render_all_tools=true`;
+
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        console.warn(`API error: ${response.status}`);
+        return null;
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.warn('Failed to fetch conversation data:', error);
+      return null;
+    }
+  }
+
+  // Extract timestamps from API response, organized by sender
+  function getMessageTimestamps(data) {
+    if (!data?.chat_messages) return { human: [], assistant: [] };
+
+    const timestamps = { human: [], assistant: [] };
+
+    for (const msg of data.chat_messages) {
+      const ts = formatTimestamp(msg.created_at);
+      if (msg.sender === 'human') {
+        timestamps.human.push(ts);
+      } else if (msg.sender === 'assistant') {
+        timestamps.assistant.push(ts);
+      }
+    }
+
+    return timestamps;
+  }
+
   function getConversationTitle() {
+    // First try to get from API data
+    if (conversationData?.name) {
+      const title = conversationData.name.trim();
+      if (title && title !== 'New conversation') {
+        return title
+          .replace(/[<>:"/\\|?*]/g, '_')
+          .replace(/\s+/g, '_')
+          .replace(/_{2,}/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .toLowerCase()
+          .substring(0, 100);
+      }
+    }
+
+    // Fallback to DOM
     const titleElement = document.querySelector(SELECTORS.conversationTitle);
     const title = titleElement?.textContent?.trim();
 
@@ -45,14 +118,13 @@ function setupClaudeExporter() {
       return 'claude_conversation';
     }
 
-    // Sanitize filename: remove/replace invalid characters
     return title
-      .replace(/[<>:"/\\|?*]/g, '_')  // Replace invalid filename chars
-      .replace(/\s+/g, '_')           // Replace spaces with underscores
-      .replace(/_{2,}/g, '_')         // Replace multiple underscores with single
-      .replace(/^_+|_+$/g, '')        // Trim leading/trailing underscores
+      .replace(/[<>:"/\\|?*]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_{2,}/g, '_')
+      .replace(/^_+|_+$/g, '')
       .toLowerCase()
-      .substring(0, 100);             // Limit length
+      .substring(0, 100);
   }
 
   async function extractMessageContent(messageContainer, messageIndex) {
@@ -62,7 +134,6 @@ function setupClaudeExporter() {
       await delay(DELAYS.hover);
 
       // Find the turn container that holds both user message and message actions
-      // Traverse up from user message to find the container with the Message actions sibling
       let turnContainer = messageContainer.parentElement;
       let editButton = null;
 
@@ -75,7 +146,6 @@ function setupClaudeExporter() {
       }
 
       if (editButton) {
-        console.log(`📝 Extracting message ${messageIndex + 1} via edit`);
         editButton.click();
         await delay(DELAYS.edit);
 
@@ -98,6 +168,7 @@ function setupClaudeExporter() {
 
     } catch (error) {
       console.error(`Failed to extract message ${messageIndex + 1}:`, error);
+      return null;
     } finally {
       // Clean up hover state
       messageContainer.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
@@ -130,8 +201,7 @@ function setupClaudeExporter() {
       console.log(`📋 Captured Claude response ${capturedResponses.length + 1}`);
       capturedResponses.push({
         type: 'claude',
-        content: text,
-        timestamp: Date.now()
+        content: text
       });
       updateStatus();
     }
@@ -193,13 +263,15 @@ function setupClaudeExporter() {
     }
   }
 
-  function buildMarkdown() {
+  function buildMarkdown(timestamps) {
     let markdown = "# Conversation with Claude\n\n";
     const maxLength = Math.max(humanMessages.length, capturedResponses.length);
 
     for (let i = 0; i < maxLength; i++) {
       if (i < humanMessages.length && humanMessages[i].content) {
-        markdown += `## Human:\n\n${humanMessages[i].content}\n\n---\n\n`;
+        const ts = timestamps?.human?.[i];
+        const header = ts ? `## Human (${ts}):` : `## Human:`;
+        markdown += `${header}\n\n${humanMessages[i].content}\n\n---\n\n`;
       }
       if (i < capturedResponses.length) {
         markdown += `## Claude:\n\n${capturedResponses[i].content}\n\n---\n\n`;
@@ -210,8 +282,8 @@ function setupClaudeExporter() {
   }
 
   async function waitForClipboardOperations(expectedCount) {
-    const maxWaitTime = 2000; // Maximum wait time
-    const checkInterval = 100; // Check every 100ms
+    const maxWaitTime = 2000;
+    const checkInterval = 100;
     let elapsed = 0;
 
     while (elapsed < maxWaitTime) {
@@ -227,7 +299,6 @@ function setupClaudeExporter() {
   }
 
   function countClaudeCopyButtons() {
-    // Count copy buttons that belong to Claude's responses only
     const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
     let count = 0;
     actionGroups.forEach(group => {
@@ -240,17 +311,29 @@ function setupClaudeExporter() {
 
   async function startExport() {
     try {
+      // Fetch conversation data from API (for timestamps)
+      statusDiv.textContent = 'Fetching conversation data...';
+      conversationData = await fetchConversationData();
+      const timestamps = getMessageTimestamps(conversationData);
+
+      if (conversationData) {
+        console.log(`📅 Got timestamps for ${timestamps.human.length} human and ${timestamps.assistant.length} assistant messages`);
+      }
+
+      // Extract human messages via edit button
       statusDiv.textContent = 'Extracting human messages...';
       await extractAllHumanMessages();
 
+      // Copy Claude responses via clipboard interception
       statusDiv.textContent = 'Copying Claude responses...';
       const expectedClaudeResponses = countClaudeCopyButtons();
       await triggerClaudeResponseCopy();
 
-      // Smart wait - only as long as needed
+      // Wait for clipboard operations to complete
       await waitForClipboardOperations(expectedClaudeResponses);
 
-      completeExport();
+      // Build and download markdown
+      completeExport(timestamps);
 
     } catch (error) {
       statusDiv.textContent = `Error: ${error.message}`;
@@ -261,7 +344,7 @@ function setupClaudeExporter() {
     }
   }
 
-  function completeExport() {
+  function completeExport(timestamps) {
     interceptorActive = false;
 
     if (humanMessages.length === 0 && capturedResponses.length === 0) {
@@ -270,7 +353,7 @@ function setupClaudeExporter() {
       return;
     }
 
-    const markdown = buildMarkdown();
+    const markdown = buildMarkdown(timestamps);
     const filename = `${getConversationTitle()}.md`;
     downloadMarkdown(markdown, filename);
 
