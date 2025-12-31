@@ -11,7 +11,9 @@ function setupClaudeExporter() {
     copyButton: 'button[data-testid="action-bar-copy"]',
     editButton: 'button[aria-label="Edit"]',
     editTextarea: 'textarea',
-    conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate'
+    conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
+    messageActionsGroup: '[role="group"][aria-label="Message actions"]',
+    feedbackButton: 'button[aria-label="Give positive feedback"]'
   };
 
   const DELAYS = {
@@ -59,8 +61,18 @@ function setupClaudeExporter() {
       messageContainer.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
       await delay(DELAYS.hover);
 
-      const messageGroup = messageContainer.closest(SELECTORS.messageGroup);
-      const editButton = messageGroup.querySelector(SELECTORS.editButton);
+      // Find the turn container that holds both user message and message actions
+      // Traverse up from user message to find the container with the Message actions sibling
+      let turnContainer = messageContainer.parentElement;
+      let editButton = null;
+
+      // Search up the DOM tree until we find the Edit button in a Message actions group
+      while (turnContainer && !editButton) {
+        editButton = turnContainer.querySelector(SELECTORS.messageActionsGroup + ' ' + SELECTORS.editButton);
+        if (!editButton) {
+          turnContainer = turnContainer.parentElement;
+        }
+      }
 
       if (editButton) {
         console.log(`📝 Extracting message ${messageIndex + 1} via edit`);
@@ -140,29 +152,42 @@ function setupClaudeExporter() {
   }
 
   async function triggerClaudeResponseCopy() {
-    const copyButtons = document.querySelectorAll(SELECTORS.copyButton);
+    // Find copy buttons that belong to Claude's responses only
+    // Claude's message action bars contain feedback buttons, user's don't
+    const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
+    const claudeCopyButtons = [];
 
-    if (copyButtons.length === 0) {
+    actionGroups.forEach(group => {
+      // If this group has feedback buttons, it's Claude's action bar
+      if (group.querySelector(SELECTORS.feedbackButton)) {
+        const copyBtn = group.querySelector(SELECTORS.copyButton);
+        if (copyBtn) {
+          claudeCopyButtons.push(copyBtn);
+        }
+      }
+    });
+
+    if (claudeCopyButtons.length === 0) {
       throw new Error('No Claude copy buttons found!');
     }
 
-    console.log(`🚀 Clicking ${copyButtons.length} Claude copy buttons...`);
+    console.log(`🚀 Clicking ${claudeCopyButtons.length} Claude copy buttons...`);
 
-    // Click all copy buttons with minimal delays
-    for (let i = 0; i < copyButtons.length; i++) {
-      const button = copyButtons[i];
+    // Click Claude's copy buttons with minimal delays
+    for (let i = 0; i < claudeCopyButtons.length; i++) {
+      const button = claudeCopyButtons[i];
       try {
         if (button.offsetParent !== null) {
           button.scrollIntoView({ behavior: 'instant', block: 'nearest' });
           button.click();
-          console.log(`🖱️ Clicked copy button ${i + 1}/${copyButtons.length}`);
+          console.log(`🖱️ Clicked copy button ${i + 1}/${claudeCopyButtons.length}`);
         }
       } catch (error) {
         console.warn(`Failed to click button ${i + 1}:`, error);
       }
 
       // Only delay between clicks, not after the last one
-      if (i < copyButtons.length - 1) {
+      if (i < claudeCopyButtons.length - 1) {
         await delay(DELAYS.copy);
       }
     }
@@ -201,17 +226,29 @@ function setupClaudeExporter() {
     console.warn(`⚠️ Timeout: Only captured ${capturedResponses.length}/${expectedCount} responses`);
   }
 
+  function countClaudeCopyButtons() {
+    // Count copy buttons that belong to Claude's responses only
+    const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
+    let count = 0;
+    actionGroups.forEach(group => {
+      if (group.querySelector(SELECTORS.feedbackButton) && group.querySelector(SELECTORS.copyButton)) {
+        count++;
+      }
+    });
+    return count;
+  }
+
   async function startExport() {
     try {
       statusDiv.textContent = 'Extracting human messages...';
       await extractAllHumanMessages();
 
       statusDiv.textContent = 'Copying Claude responses...';
+      const expectedClaudeResponses = countClaudeCopyButtons();
       await triggerClaudeResponseCopy();
 
       // Smart wait - only as long as needed
-      const copyButtons = document.querySelectorAll(SELECTORS.copyButton);
-      await waitForClipboardOperations(copyButtons.length);
+      await waitForClipboardOperations(expectedClaudeResponses);
 
       completeExport();
 
