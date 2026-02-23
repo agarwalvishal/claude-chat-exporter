@@ -2,22 +2,24 @@ function setupClaudeExporter() {
   const originalWriteText = navigator.clipboard.writeText;
   const capturedResponses = [];
   const humanMessages = [];
+  let conversationData = null;
   let interceptorActive = true;
 
   // DOM Selectors - easily modifiable if Claude's UI changes
   const SELECTORS = {
     userMessage: '[data-testid="user-message"]',
-    messageGroup: '.group',
     copyButton: 'button[data-testid="action-bar-copy"]',
     editButton: 'button[aria-label="Edit"]',
     editTextarea: 'textarea',
-    conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate'
+    conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
+    messageActionsGroup: '[role="group"][aria-label="Message actions"]',
+    feedbackButton: 'button[aria-label="Give positive feedback"]'
   };
 
   const DELAYS = {
-    hover: 50,    // Time to wait for hover effects
-    edit: 150,    // Time for edit interface to load
-    copy: 100     // Time between copy operations
+    hover: 50,
+    edit: 150,
+    copy: 100
   };
 
   function downloadMarkdown(content, filename) {
@@ -35,7 +37,76 @@ function setupClaudeExporter() {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  // Format ISO timestamp to readable format
+  function formatTimestamp(isoString) {
+    if (!isoString) return null;
+    return new Date(isoString).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit'
+    });
+  }
+
+  // Fetch conversation data from Claude API to get timestamps
+  async function fetchConversationData() {
+    try {
+      const conversationId = window.location.pathname.split('/').pop();
+      const orgId = document.cookie.match(/lastActiveOrg=([^;]+)/)?.[1];
+
+      if (!conversationId || !orgId) {
+        console.warn('Could not get conversation/org ID');
+        return null;
+      }
+
+      const url = `/api/organizations/${orgId}/chat_conversations/${conversationId}?tree=true&rendering_mode=messages&render_all_tools=true`;
+
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        console.warn(`API error: ${response.status}`);
+        return null;
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.warn('Failed to fetch conversation data:', error);
+      return null;
+    }
+  }
+
+  // Extract human message timestamps from API response
+  function getMessageTimestamps(data) {
+    if (!data?.chat_messages) return { human: [] };
+
+    const timestamps = { human: [] };
+
+    for (const msg of data.chat_messages) {
+      if (msg.sender === 'human') {
+        timestamps.human.push(formatTimestamp(msg.created_at));
+      }
+    }
+
+    return timestamps;
+  }
+
   function getConversationTitle() {
+    // First try to get from API data
+    if (conversationData?.name) {
+      const title = conversationData.name.trim();
+      if (title && title !== 'New conversation') {
+        return title
+          .replace(/[<>:"/\\|?*]/g, '_')
+          .replace(/\s+/g, '_')
+          .replace(/_{2,}/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .toLowerCase()
+          .substring(0, 100);
+      }
+    }
+
+    // Fallback to DOM
     const titleElement = document.querySelector(SELECTORS.conversationTitle);
     const title = titleElement?.textContent?.trim();
 
@@ -43,14 +114,13 @@ function setupClaudeExporter() {
       return 'claude_conversation';
     }
 
-    // Sanitize filename: remove/replace invalid characters
     return title
-      .replace(/[<>:"/\\|?*]/g, '_')  // Replace invalid filename chars
-      .replace(/\s+/g, '_')           // Replace spaces with underscores
-      .replace(/_{2,}/g, '_')         // Replace multiple underscores with single
-      .replace(/^_+|_+$/g, '')        // Trim leading/trailing underscores
+      .replace(/[<>:"/\\|?*]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_{2,}/g, '_')
+      .replace(/^_+|_+$/g, '')
       .toLowerCase()
-      .substring(0, 100);             // Limit length
+      .substring(0, 100);
   }
 
   async function extractMessageContent(messageContainer, messageIndex) {
@@ -59,11 +129,19 @@ function setupClaudeExporter() {
       messageContainer.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
       await delay(DELAYS.hover);
 
-      const messageGroup = messageContainer.closest(SELECTORS.messageGroup);
-      const editButton = messageGroup.querySelector(SELECTORS.editButton);
+      // Find the turn container that holds both user message and message actions
+      let turnContainer = messageContainer.parentElement;
+      let editButton = null;
+
+      // Search up the DOM tree until we find the Edit button in a Message actions group
+      while (turnContainer && !editButton) {
+        editButton = turnContainer.querySelector(SELECTORS.messageActionsGroup + ' ' + SELECTORS.editButton);
+        if (!editButton) {
+          turnContainer = turnContainer.parentElement;
+        }
+      }
 
       if (editButton) {
-        console.log(`📝 Extracting message ${messageIndex + 1} via edit`);
         editButton.click();
         await delay(DELAYS.edit);
 
@@ -86,6 +164,7 @@ function setupClaudeExporter() {
 
     } catch (error) {
       console.error(`Failed to extract message ${messageIndex + 1}:`, error);
+      return null;
     } finally {
       // Clean up hover state
       messageContainer.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
@@ -118,8 +197,7 @@ function setupClaudeExporter() {
       console.log(`📋 Captured Claude response ${capturedResponses.length + 1}`);
       capturedResponses.push({
         type: 'claude',
-        content: text,
-        timestamp: Date.now()
+        content: text
       });
       updateStatus();
     }
@@ -140,41 +218,56 @@ function setupClaudeExporter() {
   }
 
   async function triggerClaudeResponseCopy() {
-    const copyButtons = document.querySelectorAll(SELECTORS.copyButton);
+    // Find copy buttons that belong to Claude's responses only
+    // Claude's message action bars contain feedback buttons, user's don't
+    const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
+    const claudeCopyButtons = [];
 
-    if (copyButtons.length === 0) {
+    actionGroups.forEach(group => {
+      // If this group has feedback buttons, it's Claude's action bar
+      if (group.querySelector(SELECTORS.feedbackButton)) {
+        const copyBtn = group.querySelector(SELECTORS.copyButton);
+        if (copyBtn) {
+          claudeCopyButtons.push(copyBtn);
+        }
+      }
+    });
+
+    if (claudeCopyButtons.length === 0) {
       throw new Error('No Claude copy buttons found!');
     }
 
-    console.log(`🚀 Clicking ${copyButtons.length} Claude copy buttons...`);
+    console.log(`🚀 Clicking ${claudeCopyButtons.length} Claude copy buttons...`);
 
-    // Click all copy buttons with minimal delays
-    for (let i = 0; i < copyButtons.length; i++) {
-      const button = copyButtons[i];
+    // Click Claude's copy buttons with minimal delays
+    for (let i = 0; i < claudeCopyButtons.length; i++) {
+      const button = claudeCopyButtons[i];
       try {
         if (button.offsetParent !== null) {
           button.scrollIntoView({ behavior: 'instant', block: 'nearest' });
           button.click();
-          console.log(`🖱️ Clicked copy button ${i + 1}/${copyButtons.length}`);
+          console.log(`🖱️ Clicked copy button ${i + 1}/${claudeCopyButtons.length}`);
         }
       } catch (error) {
         console.warn(`Failed to click button ${i + 1}:`, error);
       }
 
       // Only delay between clicks, not after the last one
-      if (i < copyButtons.length - 1) {
+      if (i < claudeCopyButtons.length - 1) {
         await delay(DELAYS.copy);
       }
     }
   }
 
-  function buildMarkdown() {
+  function buildMarkdown(timestamps) {
     let markdown = "# Conversation with Claude\n\n";
     const maxLength = Math.max(humanMessages.length, capturedResponses.length);
 
     for (let i = 0; i < maxLength; i++) {
       if (i < humanMessages.length && humanMessages[i].content) {
-        markdown += `## Human:\n\n${humanMessages[i].content}\n\n---\n\n`;
+        const ts = timestamps?.human?.[i];
+        const header = ts ? `## Human (${ts}):` : `## Human:`;
+        markdown += `${header}\n\n${humanMessages[i].content}\n\n---\n\n`;
       }
       if (i < capturedResponses.length) {
         markdown += `## Claude:\n\n${capturedResponses[i].content}\n\n---\n\n`;
@@ -185,8 +278,8 @@ function setupClaudeExporter() {
   }
 
   async function waitForClipboardOperations(expectedCount) {
-    const maxWaitTime = 2000; // Maximum wait time
-    const checkInterval = 100; // Check every 100ms
+    const maxWaitTime = 2000;
+    const checkInterval = 100;
     let elapsed = 0;
 
     while (elapsed < maxWaitTime) {
@@ -201,19 +294,42 @@ function setupClaudeExporter() {
     console.warn(`⚠️ Timeout: Only captured ${capturedResponses.length}/${expectedCount} responses`);
   }
 
+  function countClaudeCopyButtons() {
+    const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
+    let count = 0;
+    actionGroups.forEach(group => {
+      if (group.querySelector(SELECTORS.feedbackButton) && group.querySelector(SELECTORS.copyButton)) {
+        count++;
+      }
+    });
+    return count;
+  }
+
   async function startExport() {
     try {
+      // Fetch conversation data from API (for timestamps)
+      statusDiv.textContent = 'Fetching conversation data...';
+      conversationData = await fetchConversationData();
+      const timestamps = getMessageTimestamps(conversationData);
+
+      if (conversationData) {
+        console.log(`📅 Got timestamps for ${timestamps.human.length} human messages`);
+      }
+
+      // Extract human messages via edit button
       statusDiv.textContent = 'Extracting human messages...';
       await extractAllHumanMessages();
 
+      // Copy Claude responses via clipboard interception
       statusDiv.textContent = 'Copying Claude responses...';
+      const expectedClaudeResponses = countClaudeCopyButtons();
       await triggerClaudeResponseCopy();
 
-      // Smart wait - only as long as needed
-      const copyButtons = document.querySelectorAll(SELECTORS.copyButton);
-      await waitForClipboardOperations(copyButtons.length);
+      // Wait for clipboard operations to complete
+      await waitForClipboardOperations(expectedClaudeResponses);
 
-      completeExport();
+      // Build and download markdown
+      completeExport(timestamps);
 
     } catch (error) {
       statusDiv.textContent = `Error: ${error.message}`;
@@ -224,7 +340,7 @@ function setupClaudeExporter() {
     }
   }
 
-  function completeExport() {
+  function completeExport(timestamps) {
     interceptorActive = false;
 
     if (humanMessages.length === 0 && capturedResponses.length === 0) {
@@ -233,7 +349,7 @@ function setupClaudeExporter() {
       return;
     }
 
-    const markdown = buildMarkdown();
+    const markdown = buildMarkdown(timestamps);
     const filename = `${getConversationTitle()}.md`;
     downloadMarkdown(markdown, filename);
 
