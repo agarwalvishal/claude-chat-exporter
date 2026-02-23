@@ -3,22 +3,18 @@ function setupClaudeExporter() {
   const capturedResponses = [];
   const humanMessages = [];
   let conversationData = null;
+  let currentCapture = capturedResponses;
   let interceptorActive = true;
 
   // DOM Selectors - easily modifiable if Claude's UI changes
   const SELECTORS = {
-    userMessage: '[data-testid="user-message"]',
     copyButton: 'button[data-testid="action-bar-copy"]',
-    editButton: 'button[aria-label="Edit"]',
-    editTextarea: 'textarea',
     conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
     messageActionsGroup: '[role="group"][aria-label="Message actions"]',
     feedbackButton: 'button[aria-label="Give positive feedback"]'
   };
 
   const DELAYS = {
-    hover: 50,
-    edit: 150,
     copy: 100
   };
 
@@ -123,82 +119,12 @@ function setupClaudeExporter() {
       .substring(0, 100);
   }
 
-  async function extractMessageContent(messageContainer, messageIndex) {
-    try {
-      // Trigger hover to reveal edit button
-      messageContainer.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-      await delay(DELAYS.hover);
-
-      // Find the turn container that holds both user message and message actions
-      let turnContainer = messageContainer.parentElement;
-      let editButton = null;
-
-      // Search up the DOM tree until we find the Edit button in a Message actions group
-      while (turnContainer && !editButton) {
-        editButton = turnContainer.querySelector(SELECTORS.messageActionsGroup + ' ' + SELECTORS.editButton);
-        if (!editButton) {
-          turnContainer = turnContainer.parentElement;
-        }
-      }
-
-      if (editButton) {
-        editButton.click();
-        await delay(DELAYS.edit);
-
-        // Get content from edit interface
-        const editTextarea = document.querySelector(SELECTORS.editTextarea);
-
-        let content = '';
-        if (editTextarea) {
-          content = editTextarea.value;
-        }
-
-        // Close edit mode
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-        await delay(DELAYS.hover);
-
-        if (content) return content;
-      }
-
-      throw new Error(`Edit button not found`);
-
-    } catch (error) {
-      console.error(`Failed to extract message ${messageIndex + 1}:`, error);
-      return null;
-    } finally {
-      // Clean up hover state
-      messageContainer.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-    }
-  }
-
-  async function extractAllHumanMessages() {
-    const userMessages = document.querySelectorAll(SELECTORS.userMessage);
-
-    console.log(`🔄 Extracting ${userMessages.length} human messages...`);
-
-    for (let i = 0; i < userMessages.length; i++) {
-      const content = await extractMessageContent(userMessages[i], i);
-      if (content) {
-        humanMessages.push({
-          type: 'user',
-          content: content,
-          index: i
-        });
-        updateStatus();
-      }
-    }
-
-    console.log(`✅ Extracted ${humanMessages.length} human messages`);
-  }
-
-  // Intercept clipboard writes for Claude responses
+  // Intercept clipboard writes and route to the active capture target
   navigator.clipboard.writeText = function(text) {
     if (interceptorActive && text && text.length > 20) {
-      console.log(`📋 Captured Claude response ${capturedResponses.length + 1}`);
-      capturedResponses.push({
-        type: 'claude',
-        content: text
-      });
+      const type = currentCapture === humanMessages ? 'user' : 'claude';
+      console.log(`📋 Captured ${type} message ${currentCapture.length + 1}`);
+      currentCapture.push({ type, content: text });
       updateStatus();
     }
   };
@@ -217,43 +143,36 @@ function setupClaudeExporter() {
     statusDiv.textContent = `Human: ${humanMessages.length} | Claude: ${capturedResponses.length}`;
   }
 
-  async function triggerClaudeResponseCopy() {
-    // Find copy buttons that belong to Claude's responses only
-    // Claude's message action bars contain feedback buttons, user's don't
+  // Returns copy buttons from action bars filtered by message type.
+  // claudeOnly=true  → action bars WITH a feedback button (Claude responses)
+  // claudeOnly=false → action bars WITHOUT a feedback button (human messages)
+  function getCopyButtons(claudeOnly) {
     const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
-    const claudeCopyButtons = [];
-
+    const buttons = [];
     actionGroups.forEach(group => {
-      // If this group has feedback buttons, it's Claude's action bar
-      if (group.querySelector(SELECTORS.feedbackButton)) {
+      const hasFeedback = !!group.querySelector(SELECTORS.feedbackButton);
+      if (hasFeedback === claudeOnly) {
         const copyBtn = group.querySelector(SELECTORS.copyButton);
-        if (copyBtn) {
-          claudeCopyButtons.push(copyBtn);
-        }
+        if (copyBtn) buttons.push(copyBtn);
       }
     });
+    return buttons;
+  }
 
-    if (claudeCopyButtons.length === 0) {
-      throw new Error('No Claude copy buttons found!');
-    }
-
-    console.log(`🚀 Clicking ${claudeCopyButtons.length} Claude copy buttons...`);
-
-    // Click Claude's copy buttons with minimal delays
-    for (let i = 0; i < claudeCopyButtons.length; i++) {
-      const button = claudeCopyButtons[i];
+  async function triggerCopyButtons(buttons) {
+    for (let i = 0; i < buttons.length; i++) {
       try {
-        if (button.offsetParent !== null) {
-          button.scrollIntoView({ behavior: 'instant', block: 'nearest' });
-          button.click();
-          console.log(`🖱️ Clicked copy button ${i + 1}/${claudeCopyButtons.length}`);
+        if (buttons[i].offsetParent !== null) {
+          buttons[i].scrollIntoView({ behavior: 'instant', block: 'nearest' });
+          buttons[i].click();
+          console.log(`🖱️ Clicked copy button ${i + 1}/${buttons.length}`);
         }
       } catch (error) {
         console.warn(`Failed to click button ${i + 1}:`, error);
       }
 
       // Only delay between clicks, not after the last one
-      if (i < claudeCopyButtons.length - 1) {
+      if (i < buttons.length - 1) {
         await delay(DELAYS.copy);
       }
     }
@@ -277,13 +196,13 @@ function setupClaudeExporter() {
     return markdown;
   }
 
-  async function waitForClipboardOperations(expectedCount) {
+  async function waitForClipboardOperations(targetArray, expectedCount) {
     const maxWaitTime = 2000;
     const checkInterval = 100;
     let elapsed = 0;
 
     while (elapsed < maxWaitTime) {
-      if (capturedResponses.length >= expectedCount) {
+      if (targetArray.length >= expectedCount) {
         console.log(`✅ All ${expectedCount} responses captured in ${elapsed}ms`);
         return;
       }
@@ -291,23 +210,12 @@ function setupClaudeExporter() {
       elapsed += checkInterval;
     }
 
-    console.warn(`⚠️ Timeout: Only captured ${capturedResponses.length}/${expectedCount} responses`);
-  }
-
-  function countClaudeCopyButtons() {
-    const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
-    let count = 0;
-    actionGroups.forEach(group => {
-      if (group.querySelector(SELECTORS.feedbackButton) && group.querySelector(SELECTORS.copyButton)) {
-        count++;
-      }
-    });
-    return count;
+    console.warn(`⚠️ Timeout: Only captured ${targetArray.length}/${expectedCount} responses`);
   }
 
   async function startExport() {
     try {
-      // Fetch conversation data from API (for timestamps)
+      // Fetch conversation data from API (for timestamps and title)
       statusDiv.textContent = 'Fetching conversation data...';
       conversationData = await fetchConversationData();
       const timestamps = getMessageTimestamps(conversationData);
@@ -316,19 +224,25 @@ function setupClaudeExporter() {
         console.log(`📅 Got timestamps for ${timestamps.human.length} human messages`);
       }
 
-      // Extract human messages via edit button
-      statusDiv.textContent = 'Extracting human messages...';
-      await extractAllHumanMessages();
+      const humanButtons = getCopyButtons(false);
+      const claudeButtons = getCopyButtons(true);
 
-      // Copy Claude responses via clipboard interception
+      if (humanButtons.length === 0 && claudeButtons.length === 0) {
+        throw new Error('No copy buttons found!');
+      }
+
+      // Phase 1: Human messages
+      statusDiv.textContent = 'Copying human messages...';
+      currentCapture = humanMessages;
+      await triggerCopyButtons(humanButtons);
+      await waitForClipboardOperations(humanMessages, humanButtons.length);
+
+      // Phase 2: Claude responses
       statusDiv.textContent = 'Copying Claude responses...';
-      const expectedClaudeResponses = countClaudeCopyButtons();
-      await triggerClaudeResponseCopy();
+      currentCapture = capturedResponses;
+      await triggerCopyButtons(claudeButtons);
+      await waitForClipboardOperations(capturedResponses, claudeButtons.length);
 
-      // Wait for clipboard operations to complete
-      await waitForClipboardOperations(expectedClaudeResponses);
-
-      // Build and download markdown
       completeExport(timestamps);
 
     } catch (error) {
