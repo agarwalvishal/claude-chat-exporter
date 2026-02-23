@@ -72,19 +72,21 @@ function setupClaudeExporter() {
     }
   }
 
-  // Extract human message timestamps from API response
+  // Build a content → timestamp map for human messages from API response.
+  // Matching by content avoids index misalignment caused by hidden/system
+  // messages that the API returns but the UI does not display.
   function getMessageTimestamps(data) {
-    if (!data?.chat_messages) return { human: [] };
-
-    const timestamps = { human: [] };
+    const map = new Map();
+    if (!data?.chat_messages) return map;
 
     for (const msg of data.chat_messages) {
       if (msg.sender === 'human') {
-        timestamps.human.push(formatTimestamp(msg.created_at));
+        const text = msg.content?.map(c => c.text ?? '').join('').trim();
+        if (text) map.set(text, formatTimestamp(msg.created_at));
       }
     }
 
-    return timestamps;
+    return map;
   }
 
   function getConversationTitle() {
@@ -184,7 +186,7 @@ function setupClaudeExporter() {
 
     for (let i = 0; i < maxLength; i++) {
       if (i < humanMessages.length && humanMessages[i].content) {
-        const ts = timestamps?.human?.[i];
+        const ts = timestamps?.get(humanMessages[i].content?.trim());
         const header = ts ? `## Human (${ts}):` : `## Human:`;
         markdown += `${header}\n\n${humanMessages[i].content}\n\n---\n\n`;
       }
@@ -221,7 +223,7 @@ function setupClaudeExporter() {
       const timestamps = getMessageTimestamps(conversationData);
 
       if (conversationData) {
-        console.log(`📅 Got timestamps for ${timestamps.human.length} human messages`);
+        console.log(`📅 Got timestamps for ${timestamps.size} human messages`);
       }
 
       const humanButtons = getCopyButtons(false);
