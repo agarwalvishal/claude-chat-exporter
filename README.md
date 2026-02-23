@@ -6,7 +6,8 @@ A JavaScript tool that exports Claude.ai conversations with **perfect markdown f
 
 - **🎯 Perfect Markdown Fidelity** - Uses Claude's copy function for exact output
 - **📊 Complete Element Support** - Tables, math, complex formatting, everything
-- **📁 Smart Filename Generation** - Uses actual conversation title
+- **🕐 Timestamps** - Human message timestamps fetched from Claude's API
+- **📁 Smart Filename Generation** - Uses actual conversation title from API
 - **🔧 Future-Proof** - Automatically supports new Claude markdown features
 - **📈 Real-Time Status** - Visual progress indicator during export
 - **🛡️ Robust Error Handling** - Comprehensive error detection and recovery
@@ -14,15 +15,14 @@ A JavaScript tool that exports Claude.ai conversations with **perfect markdown f
 
 ## How It Works
 
-This script combines two reliable methods:
-
-1. **Human Messages**: Simulates clicking edit buttons to access original message content
-2. **Claude Responses**: Intercepts clipboard when copy buttons are clicked
-3. **Perfect Output**: Uses Claude's exact markdown formatting for all elements
+1. **Fetch Metadata** - Calls Claude's internal API to retrieve the conversation title and per-message timestamps before anything is clicked
+2. **Human Messages** - Identifies human message action bars (those *without* a thumbs-up feedback button) and clicks their copy buttons; captures each clipboard write via an intercepted `navigator.clipboard.writeText`
+3. **Claude Responses** - Identifies Claude response action bars (those *with* a thumbs-up feedback button) and clicks their copy buttons; captures each clipboard write the same way
+4. **Perfect Output** - Combines both sets of captured content into a single markdown file, with timestamps on human message headers when available
 
 ### Why Copy Button Approach?
 
-Instead of manually parsing HTML and converting to markdown (which misses tables and complex elements), this tool uses **Claude's own copy button** to ensure 100% accurate markdown output. Combined with edit button simulation for human messages, you get perfect conversation exports.
+Instead of manually parsing HTML and converting to markdown (which misses tables and complex elements), this tool uses **Claude's own copy button** to ensure 100% accurate markdown output for all message types.
 
 ```
 ❌ Manual HTML Parsing:
@@ -65,19 +65,19 @@ Because this uses Claude's copy function, it automatically handles:
 
 ## File Output
 
-- **Filename**: `{conversation-title}.md` (auto-generated)
+- **Filename**: `{conversation-title}.md` (from API, falls back to DOM)
 - **Format**: Perfect markdown matching Claude's copy output
-- **Content**: Complete conversation with proper spacing
+- **Content**: Complete conversation with proper spacing and timestamps
 - **Encoding**: UTF-8 with standard line endings
 
 ## Example Output
 
-The output is **identical** to what you get when copying Claude messages manually:
+The output is **identical** to what you get when copying Claude messages manually, with timestamps added to human message headers:
 
 ```markdown
 # Conversation with Claude
 
-## Human:
+## Human (Feb 23, 2026, 10:30 AM):
 
 Can you create a comparison table of sorting algorithms?
 
@@ -106,15 +106,15 @@ Here's a comprehensive comparison table of sorting algorithms:
 
 ### Performance Tuning
 
-Adjust delays in the `DELAYS` object:
+Adjust the delay between copy button clicks in the `DELAYS` object:
 
 ```javascript
 const DELAYS = {
-  hover: 50, // Time to wait for hover effects (recommended: 50ms)
-  edit: 150, // Time for edit interface to load (recommended: 150ms)
-  copy: 100, // Time between copy operations (recommended: 100ms)
+  copy: 100, // Delay between copy button clicks in ms (increase if messages are missed)
 };
 ```
+
+Increasing `copy` can help on slower machines or when the page is under load. Decreasing it speeds up export but may cause clipboard writes to be missed.
 
 ### UI Selector Updates
 
@@ -122,14 +122,14 @@ If Claude's interface changes, update the `SELECTORS` object:
 
 ```javascript
 const SELECTORS = {
-  userMessage: '[data-testid="user-message"]',
-  messageGroup: '.group',
   copyButton: 'button[data-testid="action-bar-copy"]',
-  editButton: 'button[aria-label="Edit"]',
-  editTextarea: 'textarea',
-  conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate'
+  conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
+  messageActionsGroup: '[role="group"][aria-label="Message actions"]',
+  feedbackButton: 'button[aria-label="Give positive feedback"]'
 };
 ```
+
+The `feedbackButton` selector is what distinguishes Claude's action bars from human message action bars — it only appears on Claude's responses.
 
 ## Performance Metrics
 
@@ -153,9 +153,10 @@ _Requires clipboard API support (available in all modern browsers)_
 
 The script shows real-time progress:
 
-- `Extracting human messages...` - Processing edit buttons
-- `Copying Claude responses...` - Clicking copy buttons
-- `Human: X | Claude: Y` - Current counts
+- `Fetching conversation data...` - Retrieving title and timestamps from API
+- `Copying human messages...` - Clicking human message copy buttons
+- `Copying Claude responses...` - Clicking Claude response copy buttons
+- `Human: X | Claude: Y` - Live capture counts
 - `✅ Downloaded: filename.md` - Success!
 
 ### Common Issues
@@ -174,24 +175,57 @@ The script shows real-time progress:
 
 ## Technical Architecture
 
-### Smart Clipboard Interception
+### Two-Phase Copy Button Capture
+
+Human and Claude message action bars are structurally identical except that Claude's bars include a thumbs-up feedback button. `getCopyButtons` uses this to filter:
 
 ```javascript
-navigator.clipboard.writeText = function (text) {
-  if (interceptorActive && text && text.length > 0) {
-    capturedResponses.push(text); // Capture Claude's exact output
+function getCopyButtons(claudeOnly) {
+  const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
+  const buttons = [];
+  actionGroups.forEach(group => {
+    const hasFeedback = !!group.querySelector(SELECTORS.feedbackButton);
+    if (hasFeedback === claudeOnly) {
+      const copyBtn = group.querySelector(SELECTORS.copyButton);
+      if (copyBtn) buttons.push(copyBtn);
+    }
+  });
+  return buttons;
+}
+```
+
+`startExport` then runs two sequential phases, switching `currentCapture` between `humanMessages` and `capturedResponses` so the clipboard interceptor routes each write to the right array:
+
+```javascript
+// Phase 1: Human messages
+currentCapture = humanMessages;
+await triggerCopyButtons(humanButtons);
+await waitForClipboardOperations(humanMessages, humanButtons.length);
+
+// Phase 2: Claude responses
+currentCapture = capturedResponses;
+await triggerCopyButtons(claudeButtons);
+await waitForClipboardOperations(capturedResponses, claudeButtons.length);
+```
+
+### Clipboard Interception
+
+```javascript
+navigator.clipboard.writeText = function(text) {
+  if (interceptorActive && text) {
+    const type = currentCapture === humanMessages ? 'user' : 'claude';
+    currentCapture.push({ type, content: text });
   }
 };
 ```
 
-### Edit Button Simulation
+### Timestamp Matching
+
+Timestamps are fetched from Claude's internal API and stored in a `Map<content → timestamp>`. Matching by content (rather than by index) ensures correctness even when the API returns hidden or system messages alongside visible ones:
 
 ```javascript
-// Hover -> Click Edit -> Extract -> Close
-messageContainer.dispatchEvent(new MouseEvent("mouseenter"));
-editButton.click();
-content = textarea.value; // Original message content
-document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+const ts = timestamps?.get(humanMessages[i].content?.trim());
+const header = ts ? `## Human (${ts}):` : `## Human:`;
 ```
 
 ## Advantages Over Manual Methods
@@ -225,7 +259,7 @@ This project benefits from:
 ## Privacy & Security
 
 - **Local Processing** - Everything runs in your browser
-- **No External Calls** - Only interacts with Claude.ai DOM
+- **Same-Origin API Only** - Fetches metadata from Claude's own backend using your existing session; no third-party services involved
 - **Temporary Interception** - Clipboard restored after export
 - **No Data Storage** - Messages processed and downloaded immediately
 
