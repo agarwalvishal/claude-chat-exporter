@@ -123,7 +123,7 @@ function setupClaudeExporter() {
 
   // Intercept clipboard writes and route to the active capture target
   navigator.clipboard.writeText = function(text) {
-    if (interceptorActive && text && text.length > 20) {
+    if (interceptorActive && text) {
       const type = currentCapture === humanMessages ? 'user' : 'claude';
       console.log(`📋 Captured ${type} message ${currentCapture.length + 1}`);
       currentCapture.push({ type, content: text });
