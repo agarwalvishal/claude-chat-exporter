@@ -8,6 +8,7 @@ A JavaScript tool that exports Claude.ai conversations with **perfect markdown f
 - **📊 Complete Element Support** - Tables, math, complex formatting, everything
 - **🕐 Timestamps** - Human message timestamps fetched from Claude's API
 - **📁 Smart Filename Generation** - Uses actual conversation title from API
+- **🖱️ Manual Export Button** - Adds an `Export` button to Claude's top-right controls
 - **🔧 Future-Proof** - Automatically supports new Claude markdown features
 - **📈 Real-Time Status** - Visual progress indicator during export
 - **🛡️ Robust Error Handling** - Comprehensive error detection and recovery
@@ -46,8 +47,9 @@ Instead of manually parsing HTML and converting to markdown (which misses tables
    - Firefox: Press F12 or Ctrl+Shift+K (Windows/Linux) or Cmd+Option+K (Mac)
    - Safari: Enable the Develop menu in preferences, then press Cmd+Option+C
 3. Copy the entire script in the file `claude-chat-exporter.js` and paste it into the console.
-4. Press Enter to run the script.
-5. The script will show a progress indicator and will automatically generate and download a file named `{conversation-title}.md` (auto-generated with `conversation-title` being the Claude conversation title).
+4. Press Enter to inject the exporter into the page.
+5. Click the `Export` button that appears in Claude's top-right controls next to `Share`.
+6. The script will show a progress indicator and then download a file named `{conversation-title}.md` (`conversation-title` comes from the Claude conversation title).
 
 ## Complete Element Support
 
@@ -125,11 +127,13 @@ const SELECTORS = {
   copyButton: 'button[data-testid="action-bar-copy"]',
   conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
   messageActionsGroup: '[role="group"][aria-label="Message actions"]',
-  feedbackButton: 'button[aria-label="Give positive feedback"]'
+  feedbackButton: 'button[aria-label="Give positive feedback"]',
+  controlsContainer: 'div[data-testid="wiggle-controls-actions"]'
 };
 ```
 
 The `feedbackButton` selector is what distinguishes Claude's action bars from human message action bars — it only appears on Claude's responses.
+The `controlsContainer` selector is where the script injects the manual `Export` button.
 
 ## Performance Metrics
 
@@ -153,10 +157,10 @@ _Requires clipboard API support (available in all modern browsers)_
 
 The script shows real-time progress:
 
+- `Export` - Starts the export on demand from Claude's control bar
 - `Fetching conversation data...` - Retrieving title and timestamps from API
 - `Copying human messages...` - Clicking human message copy buttons
 - `Copying Claude responses...` - Clicking Claude response copy buttons
-- `Human: X | Claude: Y` - Live capture counts
 - `✅ Downloaded: filename.md` - Success!
 
 ### Common Issues
@@ -194,18 +198,14 @@ function getCopyButtons(claudeOnly) {
 }
 ```
 
-`startExport` then runs two sequential phases, switching `currentCapture` between `humanMessages` and `capturedResponses` so the clipboard interceptor routes each write to the right array:
+Clicking `Export` runs two sequential phases, one for human messages and one for Claude responses:
 
 ```javascript
-// Phase 1: Human messages
-currentCapture = humanMessages;
-await triggerCopyButtons(humanButtons);
-await waitForClipboardOperations(humanMessages, humanButtons.length);
+showStatus('Copying human messages...');
+await captureButtons(humanButtons, humanMessages);
 
-// Phase 2: Claude responses
-currentCapture = capturedResponses;
-await triggerCopyButtons(claudeButtons);
-await waitForClipboardOperations(capturedResponses, claudeButtons.length);
+showStatus('Copying Claude responses...');
+await captureButtons(claudeButtons, capturedResponses);
 ```
 
 ### Clipboard Interception
@@ -213,9 +213,10 @@ await waitForClipboardOperations(capturedResponses, claudeButtons.length);
 ```javascript
 navigator.clipboard.writeText = function(text) {
   if (interceptorActive && text) {
-    const type = currentCapture === humanMessages ? 'user' : 'claude';
-    currentCapture.push({ type, content: text });
+    targetArray.push({ content: text });
   }
+
+  return originalWriteText(text);
 };
 ```
 
