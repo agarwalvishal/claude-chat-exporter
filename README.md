@@ -41,6 +41,10 @@ Instead of manually parsing HTML and converting to markdown (which misses tables
 
 ## Usage
 
+There are two ways to use the exporter:
+
+### Option 1: Run from the browser console
+
 1. Open your conversation with Claude in your web browser.
 2. Open the browser's developer console:
    - Chrome/Edge: Press F12 or Ctrl+Shift+J (Windows/Linux) or Cmd+Option+J (Mac)
@@ -50,6 +54,13 @@ Instead of manually parsing HTML and converting to markdown (which misses tables
 4. Press Enter to inject the exporter into the page.
 5. Click the `Export` button that appears in Claude's top-right controls next to `Share`.
 6. The script will show a progress indicator and then download a file named `{conversation-title}.md` (`conversation-title` comes from the Claude conversation title).
+
+### Option 2: Install as a userscript
+
+1. Install a userscript manager such as Tampermonkey, Violentmonkey, or Greasemonkey.
+2. Create a new userscript and paste in the contents of `claude-chat-exporter.user.js`.
+3. Save the userscript and open any Claude conversation.
+4. Click the `Export` button that appears in Claude's top-right controls next to `Share`.
 
 ## Complete Element Support
 
