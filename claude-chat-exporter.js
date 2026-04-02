@@ -1,17 +1,15 @@
 function setupClaudeExporter() {
-  const originalWriteText = navigator.clipboard.writeText;
-  const capturedResponses = [];
-  const humanMessages = [];
   let conversationData = null;
-  let currentCapture = capturedResponses;
-  let interceptorActive = true;
+  let statusDiv = null;
+  let exportButton = null;
+  let isExporting = false;
 
-  // DOM Selectors - easily modifiable if Claude's UI changes
   const SELECTORS = {
     copyButton: 'button[data-testid="action-bar-copy"]',
     conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
     messageActionsGroup: '[role="group"][aria-label="Message actions"]',
-    feedbackButton: 'button[aria-label="Give positive feedback"]'
+    feedbackButton: 'button[aria-label="Give positive feedback"]',
+    controlsContainer: 'div[data-testid="wiggle-controls-actions"]'
   };
 
   const DELAYS = {
@@ -33,7 +31,6 @@ function setupClaudeExporter() {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // Format ISO timestamp to readable format
   function formatTimestamp(isoString) {
     if (!isoString) return null;
     return new Date(isoString).toLocaleString('en-US', {
@@ -42,18 +39,17 @@ function setupClaudeExporter() {
     });
   }
 
-  // Fetch conversation data from Claude API to get timestamps
   async function fetchConversationData() {
     try {
-      const conversationId = window.location.pathname.split('/').pop();
-      const orgId = document.cookie.match(/lastActiveOrg=([^;]+)/)?.[1];
+      const conversationId = window.location.pathname.split('/').filter(Boolean).pop();
+      const orgId = document.cookie.match(/(?:^|;\s*)lastActiveOrg=([^;]+)/)?.[1];
 
       if (!conversationId || !orgId) {
         console.warn('Could not get conversation/org ID');
         return null;
       }
 
-      const url = `/api/organizations/${orgId}/chat_conversations/${conversationId}?tree=true&rendering_mode=messages&render_all_tools=true`;
+      const url = `/api/organizations/${decodeURIComponent(orgId)}/chat_conversations/${conversationId}?tree=true&rendering_mode=messages&render_all_tools=true`;
 
       const response = await fetch(url, {
         credentials: 'include',
@@ -72,9 +68,6 @@ function setupClaudeExporter() {
     }
   }
 
-  // Build a content → timestamp map for human messages from API response.
-  // Matching by content avoids index misalignment caused by hidden/system
-  // messages that the API returns but the UI does not display.
   function getMessageTimestamps(data) {
     const map = new Map();
     if (!data?.chat_messages) return map;
@@ -89,29 +82,7 @@ function setupClaudeExporter() {
     return map;
   }
 
-  function getConversationTitle() {
-    // First try to get from API data
-    if (conversationData?.name) {
-      const title = conversationData.name.trim();
-      if (title && title !== 'New conversation') {
-        return title
-          .replace(/[<>:"/\\|?*]/g, '_')
-          .replace(/\s+/g, '_')
-          .replace(/_{2,}/g, '_')
-          .replace(/^_+|_+$/g, '')
-          .toLowerCase()
-          .substring(0, 100);
-      }
-    }
-
-    // Fallback to DOM
-    const titleElement = document.querySelector(SELECTORS.conversationTitle);
-    const title = titleElement?.textContent?.trim();
-
-    if (!title || title === 'Claude' || title.includes('New conversation')) {
-      return 'claude_conversation';
-    }
-
+  function sanitizeFilename(title) {
     return title
       .replace(/[<>:"/\\|?*]/g, '_')
       .replace(/\s+/g, '_')
@@ -121,36 +92,58 @@ function setupClaudeExporter() {
       .substring(0, 100);
   }
 
-  // Intercept clipboard writes and route to the active capture target
-  navigator.clipboard.writeText = function(text) {
-    if (interceptorActive && text) {
-      const type = currentCapture === humanMessages ? 'user' : 'claude';
-      console.log(`📋 Captured ${type} message ${currentCapture.length + 1}`);
-      currentCapture.push({ type, content: text });
-      updateStatus();
+  function getConversationTitle() {
+    if (conversationData?.name) {
+      const title = conversationData.name.trim();
+      if (title && title !== 'New conversation') {
+        return sanitizeFilename(title);
+      }
     }
-  };
 
-  // Create status indicator
-  const statusDiv = document.createElement('div');
-  statusDiv.style.cssText = `
-    position: fixed; top: 10px; right: 10px; z-index: 10000;
-    background: #2196F3; color: white; padding: 10px 15px;
-    border-radius: 5px; font-family: monospace; font-size: 12px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.3); max-width: 300px;
-  `;
-  document.body.appendChild(statusDiv);
+    const titleElement = document.querySelector(SELECTORS.conversationTitle);
+    const title = titleElement?.textContent?.trim();
 
-  function updateStatus() {
-    statusDiv.textContent = `Human: ${humanMessages.length} | Claude: ${capturedResponses.length}`;
+    if (!title || title === 'Claude' || title.includes('New conversation')) {
+      return 'claude_conversation';
+    }
+
+    return sanitizeFilename(title);
   }
 
-  // Returns copy buttons from action bars filtered by message type.
-  // claudeOnly=true  → action bars WITH a feedback button (Claude responses)
-  // claudeOnly=false → action bars WITHOUT a feedback button (human messages)
+  function ensureStatusDiv() {
+    if (statusDiv && document.body.contains(statusDiv)) return statusDiv;
+
+    statusDiv = document.createElement('div');
+    statusDiv.style.cssText = `
+      position: fixed; top: 10px; right: 10px; z-index: 10000;
+      background: #2196F3; color: white; padding: 10px 15px;
+      border-radius: 5px; font-family: monospace; font-size: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3); max-width: 300px;
+    `;
+    document.body.appendChild(statusDiv);
+
+    return statusDiv;
+  }
+
+  function showStatus(message, background = '#2196F3') {
+    const element = ensureStatusDiv();
+    element.textContent = message;
+    element.style.background = background;
+  }
+
+  function cleanupStatus() {
+    setTimeout(() => {
+      if (statusDiv && document.body.contains(statusDiv)) {
+        document.body.removeChild(statusDiv);
+      }
+      statusDiv = null;
+    }, 3000);
+  }
+
   function getCopyButtons(claudeOnly) {
     const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
     const buttons = [];
+
     actionGroups.forEach(group => {
       const hasFeedback = !!group.querySelector(SELECTORS.feedbackButton);
       if (hasFeedback === claudeOnly) {
@@ -158,29 +151,60 @@ function setupClaudeExporter() {
         if (copyBtn) buttons.push(copyBtn);
       }
     });
+
     return buttons;
   }
 
-  async function triggerCopyButtons(buttons) {
-    for (let i = 0; i < buttons.length; i++) {
-      try {
-        if (buttons[i].offsetParent !== null) {
-          buttons[i].scrollIntoView({ behavior: 'instant', block: 'nearest' });
-          buttons[i].click();
-          console.log(`🖱️ Clicked copy button ${i + 1}/${buttons.length}`);
-        }
-      } catch (error) {
-        console.warn(`Failed to click button ${i + 1}:`, error);
+  async function captureButtons(buttons, targetArray) {
+    const originalWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+    let interceptorActive = true;
+
+    navigator.clipboard.writeText = function(text) {
+      if (interceptorActive && text) {
+        targetArray.push({ content: text });
       }
 
-      // Only delay between clicks, not after the last one
-      if (i < buttons.length - 1) {
-        await delay(DELAYS.copy);
+      return originalWriteText(text);
+    };
+
+    try {
+      for (let i = 0; i < buttons.length; i++) {
+        try {
+          if (buttons[i].offsetParent !== null) {
+            buttons[i].scrollIntoView({ behavior: 'instant', block: 'nearest' });
+            buttons[i].click();
+            console.log(`Clicked copy button ${i + 1}/${buttons.length}`);
+          }
+        } catch (error) {
+          console.warn(`Failed to click button ${i + 1}:`, error);
+        }
+
+        if (i < buttons.length - 1) {
+          await delay(DELAYS.copy);
+        }
       }
+
+      const maxWaitTime = 2000;
+      const checkInterval = 100;
+      let elapsed = 0;
+
+      while (elapsed < maxWaitTime) {
+        if (targetArray.length >= buttons.length) {
+          return;
+        }
+
+        await delay(checkInterval);
+        elapsed += checkInterval;
+      }
+
+      console.warn(`Timeout: Only captured ${targetArray.length}/${buttons.length} responses`);
+    } finally {
+      interceptorActive = false;
+      navigator.clipboard.writeText = originalWriteText;
     }
   }
 
-  function buildMarkdown(timestamps) {
+  function buildMarkdown(humanMessages, capturedResponses, timestamps) {
     let markdown = "# Conversation with Claude\n\n";
     const maxLength = Math.max(humanMessages.length, capturedResponses.length);
 
@@ -190,7 +214,7 @@ function setupClaudeExporter() {
         const header = ts ? `## Human (${ts}):` : `## Human:`;
         markdown += `${header}\n\n${humanMessages[i].content}\n\n---\n\n`;
       }
-      if (i < capturedResponses.length) {
+      if (i < capturedResponses.length && capturedResponses[i].content) {
         markdown += `## Claude:\n\n${capturedResponses[i].content}\n\n---\n\n`;
       }
     }
@@ -198,33 +222,26 @@ function setupClaudeExporter() {
     return markdown;
   }
 
-  async function waitForClipboardOperations(targetArray, expectedCount) {
-    const maxWaitTime = 2000;
-    const checkInterval = 100;
-    let elapsed = 0;
+  function setButtonState() {
+    if (!exportButton) return;
 
-    while (elapsed < maxWaitTime) {
-      if (targetArray.length >= expectedCount) {
-        console.log(`✅ All ${expectedCount} responses captured in ${elapsed}ms`);
-        return;
-      }
-      await delay(checkInterval);
-      elapsed += checkInterval;
-    }
-
-    console.warn(`⚠️ Timeout: Only captured ${targetArray.length}/${expectedCount} responses`);
+    exportButton.disabled = isExporting;
+    exportButton.textContent = isExporting ? 'Exporting...' : 'Export';
   }
 
   async function startExport() {
+    if (isExporting) return;
+
+    isExporting = true;
+    setButtonState();
+
     try {
-      // Fetch conversation data from API (for timestamps and title)
-      statusDiv.textContent = 'Fetching conversation data...';
+      const humanMessages = [];
+      const capturedResponses = [];
+
+      showStatus('Fetching conversation data...');
       conversationData = await fetchConversationData();
       const timestamps = getMessageTimestamps(conversationData);
-
-      if (conversationData) {
-        console.log(`📅 Got timestamps for ${timestamps.size} human messages`);
-      }
 
       const humanButtons = getCopyButtons(false);
       const claudeButtons = getCopyButtons(true);
@@ -233,59 +250,84 @@ function setupClaudeExporter() {
         throw new Error('No copy buttons found!');
       }
 
-      // Phase 1: Human messages
-      statusDiv.textContent = 'Copying human messages...';
-      currentCapture = humanMessages;
-      await triggerCopyButtons(humanButtons);
-      await waitForClipboardOperations(humanMessages, humanButtons.length);
+      showStatus('Copying human messages...');
+      await captureButtons(humanButtons, humanMessages);
 
-      // Phase 2: Claude responses
-      statusDiv.textContent = 'Copying Claude responses...';
-      currentCapture = capturedResponses;
-      await triggerCopyButtons(claudeButtons);
-      await waitForClipboardOperations(capturedResponses, claudeButtons.length);
+      showStatus('Copying Claude responses...');
+      await captureButtons(claudeButtons, capturedResponses);
 
-      completeExport(timestamps);
+      if (humanMessages.length === 0 && capturedResponses.length === 0) {
+        throw new Error('No messages captured!');
+      }
 
+      const markdown = buildMarkdown(humanMessages, capturedResponses, timestamps);
+      const filename = `${getConversationTitle()}.md`;
+      downloadMarkdown(markdown, filename);
+
+      showStatus(`Downloaded: ${filename}`, '#4CAF50');
     } catch (error) {
-      statusDiv.textContent = `Error: ${error.message}`;
-      statusDiv.style.background = '#f44336';
+      showStatus(`Error: ${error.message}`, '#f44336');
       console.error('Export failed:', error);
     } finally {
-      setTimeout(cleanup, 3000);
+      isExporting = false;
+      setButtonState();
+      cleanupStatus();
     }
   }
 
-  function completeExport(timestamps) {
-    interceptorActive = false;
+  function createExportButton() {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.claudeExporterButton = 'true';
+    button.className = `inline-flex
+  items-center
+  justify-center
+  relative
+  isolate
+  shrink-0
+  can-focus
+  select-none
+  disabled:pointer-events-none
+  disabled:opacity-50
+  disabled:shadow-none
+  disabled:drop-shadow-none font-base-bold
+          border-0.5
+          overflow-hidden
+          transition
+          duration-100
+          backface-hidden h-8 rounded-md px-3 min-w-[4rem] whitespace-nowrap !text-xs _fill_1abo4_9 _secondary_1abo4_72`;
+    button.textContent = 'Export';
+    button.addEventListener('click', startExport);
 
-    if (humanMessages.length === 0 && capturedResponses.length === 0) {
-      statusDiv.textContent = 'No messages captured!';
-      statusDiv.style.background = '#f44336';
+    return button;
+  }
+
+  function insertExportButton() {
+    const container = document.querySelector(SELECTORS.controlsContainer);
+    if (!container) return;
+
+    const existingButton = container.querySelector('[data-claude-exporter-button="true"]');
+    if (existingButton) {
+      exportButton = existingButton;
+      setButtonState();
       return;
     }
 
-    const markdown = buildMarkdown(timestamps);
-    const filename = `${getConversationTitle()}.md`;
-    downloadMarkdown(markdown, filename);
-
-    statusDiv.textContent = `✅ Downloaded: ${filename}`;
-    statusDiv.style.background = '#4CAF50';
-
-    console.log('🎉 Export complete!');
+    exportButton = createExportButton();
+    container.appendChild(exportButton);
+    setButtonState();
   }
 
-  function cleanup() {
-    navigator.clipboard.writeText = originalWriteText;
-    if (document.body.contains(statusDiv)) {
-      document.body.removeChild(statusDiv);
-    }
-  }
+  insertExportButton();
 
-  // Initialize
-  updateStatus();
-  setTimeout(startExport, 1000);
+  const observer = new MutationObserver(() => {
+    insertExportButton();
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
 }
 
-// Run the exporter
 setupClaudeExporter();
