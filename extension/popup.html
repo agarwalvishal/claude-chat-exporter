@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      width: 280px;
+      padding: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .header img {
+      width: 32px;
+      height: 32px;
+    }
+    .header h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .description {
+      font-size: 13px;
+      color: #aaa;
+      margin-bottom: 16px;
+      line-height: 1.4;
+    }
+    .export-btn {
+      width: 100%;
+      padding: 12px 16px;
+      background: #4f46e5;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .export-btn:hover {
+      background: #4338ca;
+    }
+    .export-btn:disabled {
+      background: #6b7280;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      text-align: center;
+      display: none;
+    }
+    .status.success {
+      background: rgba(76, 175, 80, 0.2);
+      color: #4CAF50;
+      display: block;
+    }
+    .status.error {
+      background: rgba(244, 67, 54, 0.2);
+      color: #f44336;
+      display: block;
+    }
+    .status.loading {
+      background: rgba(33, 150, 243, 0.2);
+      color: #2196F3;
+      display: block;
+    }
+    .note {
+      margin-top: 16px;
+      font-size: 11px;
+      color: #666;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="icons/icon48.png" alt="Claude Exporter">
+    <h1>Claude Chat Exporter</h1>
+  </div>
+  <p class="description">
+    Export your Claude.ai conversation to a markdown file with perfect formatting.
+  </p>
+  <button id="exportBtn" class="export-btn">Export Conversation</button>
+  <div id="status" class="status"></div>
+  <p class="note">Make sure you're on a Claude conversation page</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

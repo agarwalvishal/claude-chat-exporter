@@ -2,6 +2,8 @@
 
 A JavaScript tool that exports Claude.ai conversations with **perfect markdown fidelity** by leveraging Claude's native copy functionality. Get complete conversations with both human and AI messages including tables, complex formatting, and all elements that Claude supports.
 
+Support as extension is also available.
+
 ## Features
 
 - **🎯 Perfect Markdown Fidelity** - Uses Claude's copy function for exact output
@@ -40,6 +42,8 @@ Instead of manually parsing HTML and converting to markdown (which misses tables
 
 ## Usage
 
+### As Console Script
+
 1. Open your conversation with Claude in your web browser.
 2. Open the browser's developer console:
    - Chrome/Edge: Press F12 or Ctrl+Shift+J (Windows/Linux) or Cmd+Option+J (Mac)
@@ -47,7 +51,18 @@ Instead of manually parsing HTML and converting to markdown (which misses tables
    - Safari: Enable the Develop menu in preferences, then press Cmd+Option+C
 3. Copy the entire script in the file `claude-chat-exporter.js` and paste it into the console.
 4. Press Enter to run the script.
-5. The script will show a progress indicator and will automatically generate and download a file named `{conversation-title}.md` (auto-generated with `conversation-title` being the Claude conversation title).
+5. The script will show a progress indicator and will automatically generate and download a file named `{conversation-title}.md`.
+
+### As Browser Extension
+
+1. Go to `chrome://extensions` (In chrome based) (or your browser's equivalent)
+2. Enable **Developer mode**
+3. Click **Load unpacked** and select the `extension` folder
+4. Navigate to a conversation on [claude.ai](https://claude.ai)
+5. Click the extension icon in your toolbar
+6. The conversation will be exported and downloaded
+
+**Supported Browsers:** Chrome, Edge, Brave, Firefox
 
 ## Complete Element Support
 
