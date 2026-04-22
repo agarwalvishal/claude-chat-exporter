@@ -45,6 +45,7 @@ Instead of manually parsing HTML and converting to markdown (which misses tables
    - Chrome/Edge: Press F12 or Ctrl+Shift+J (Windows/Linux) or Cmd+Option+J (Mac)
    - Firefox: Press F12 or Ctrl+Shift+K (Windows/Linux) or Cmd+Option+K (Mac)
    - Safari: Enable the Develop menu in preferences, then press Cmd+Option+C
+    > Don't forget to enter the command 'allow pasting' (if needed) and then press Enter into the console.
 3. Copy the entire script in the file `claude-chat-exporter.js` and paste it into the console.
 4. Press Enter to run the script.
 5. The script will show a progress indicator and will automatically generate and download a file named `{conversation-title}.md` (auto-generated with `conversation-title` being the Claude conversation title).
