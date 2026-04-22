@@ -50,6 +50,18 @@ Instead of manually parsing HTML and converting to markdown (which misses tables
 4. Press Enter to run the script.
 5. The script will show a progress indicator and will automatically generate and download a file named `{conversation-title}.md` (auto-generated with `conversation-title` being the Claude conversation title).
 
+### As Browser Extension
+
+1. Go to `chrome://extensions` (In chrome based) (or your browser's equivalent)
+2. Enable **Developer mode**
+3. Click **Load unpacked** and select the `extension` folder
+4. Navigate to a conversation on [claude.ai](https://claude.ai)
+5. Click the extension icon in your toolbar
+6. The conversation will be exported and downloaded
+
+**Supported Browsers:** Chrome, Edge, Brave, Firefox
+
+
 ## Complete Element Support
 
 Because this uses Claude's copy function, it automatically handles:
