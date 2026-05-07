@@ -1,3 +1,5 @@
+const FORMAT = { thinking: 'blockquote' };  // 'blockquote' | 'details'
+
 function setupClaudeExporter() {
   const originalWriteText = navigator.clipboard.writeText;
   const originalWrite = navigator.clipboard.write;
@@ -229,6 +231,14 @@ function setupClaudeExporter() {
     }
   }
 
+  function formatThinking(t) {
+    if (FORMAT.thinking === 'details') {
+      return `<details>\n<summary>Thinking</summary>\n\n${t}\n\n</details>\n\n`;
+    }
+    const quoted = t.split('\n').map(line => line ? `> ${line}` : '>').join('\n');
+    return `> **Thinking**\n>\n${quoted}\n\n`;
+  }
+
   function buildMarkdown(timestamps, thinkingMap) {
     let markdown = "# Conversation with Claude\n\n";
     const maxLength = Math.max(humanMessages.length, capturedResponses.length);
@@ -245,8 +255,7 @@ function setupClaudeExporter() {
         let body = '';
         if (thinking?.length) {
           for (const t of thinking) {
-            const quoted = t.split('\n').map(line => line ? `> ${line}` : '>').join('\n');
-            body += `> **Thinking**\n>\n${quoted}\n\n`;
+            body += formatThinking(t);
           }
         }
         body += claudeText;
