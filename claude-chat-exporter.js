@@ -1,5 +1,6 @@
 function setupClaudeExporter() {
   const originalWriteText = navigator.clipboard.writeText;
+  const originalWrite = navigator.clipboard.write;
   const capturedResponses = [];
   const humanMessages = [];
   let conversationData = null;
@@ -89,6 +90,35 @@ function setupClaudeExporter() {
     return map;
   }
 
+  // Build a final-text → thinking-blocks map for assistant messages.
+  // Keyed by the joined text-block content so it can be looked up by the
+  // clipboard-captured response text (same matching strategy as timestamps).
+  function getAssistantThinking(data) {
+    const map = new Map();
+    if (!data?.chat_messages) return map;
+
+    for (const msg of data.chat_messages) {
+      if (msg.sender !== 'assistant' || !Array.isArray(msg.content)) continue;
+
+      const thinking = msg.content
+        .filter(c => c.type === 'thinking')
+        .map(c => (c.thinking ?? c.text ?? '').trim())
+        .filter(Boolean);
+
+      if (thinking.length === 0) continue;
+
+      const finalText = msg.content
+        .filter(c => c.type === 'text')
+        .map(c => c.text ?? '')
+        .join('')
+        .trim();
+
+      if (finalText) map.set(finalText, thinking);
+    }
+
+    return map;
+  }
+
   function getConversationTitle() {
     // First try to get from API data
     if (conversationData?.name) {
@@ -121,13 +151,32 @@ function setupClaudeExporter() {
       .substring(0, 100);
   }
 
-  // Intercept clipboard writes and route to the active capture target
-  navigator.clipboard.writeText = function(text) {
+  // Intercept clipboard writes and route to the active capture target.
+  // Claude's UI may use either writeText() (plain) or write() (rich
+  // ClipboardItem with text/plain + text/html), so both are patched.
+  function captureText(text) {
     if (interceptorActive && text) {
       const type = currentCapture === humanMessages ? 'user' : 'claude';
       console.log(`📋 Captured ${type} message ${currentCapture.length + 1}`);
       currentCapture.push({ type, content: text });
       updateStatus();
+    }
+  }
+
+  navigator.clipboard.writeText = function(text) {
+    captureText(text);
+  };
+
+  navigator.clipboard.write = async function(items) {
+    for (const item of items || []) {
+      try {
+        if (item.types?.includes('text/plain')) {
+          const blob = await item.getType('text/plain');
+          captureText(await blob.text());
+        }
+      } catch (error) {
+        console.warn('Failed to read clipboard item:', error);
+      }
     }
   };
 
@@ -180,7 +229,7 @@ function setupClaudeExporter() {
     }
   }
 
-  function buildMarkdown(timestamps) {
+  function buildMarkdown(timestamps, thinkingMap) {
     let markdown = "# Conversation with Claude\n\n";
     const maxLength = Math.max(humanMessages.length, capturedResponses.length);
 
@@ -191,7 +240,16 @@ function setupClaudeExporter() {
         markdown += `${header}\n\n${humanMessages[i].content}\n\n---\n\n`;
       }
       if (i < capturedResponses.length) {
-        markdown += `## Claude:\n\n${capturedResponses[i].content}\n\n---\n\n`;
+        const claudeText = capturedResponses[i].content;
+        const thinking = thinkingMap?.get(claudeText.trim());
+        let body = '';
+        if (thinking?.length) {
+          for (const t of thinking) {
+            body += `<details>\n<summary>Thinking</summary>\n\n${t}\n\n</details>\n\n`;
+          }
+        }
+        body += claudeText;
+        markdown += `## Claude:\n\n${body}\n\n---\n\n`;
       }
     }
 
@@ -217,13 +275,15 @@ function setupClaudeExporter() {
 
   async function startExport() {
     try {
-      // Fetch conversation data from API (for timestamps and title)
+      // Fetch conversation data from API (for timestamps, title, and thinking)
       statusDiv.textContent = 'Fetching conversation data...';
       conversationData = await fetchConversationData();
       const timestamps = getMessageTimestamps(conversationData);
+      const thinkingMap = getAssistantThinking(conversationData);
 
       if (conversationData) {
         console.log(`📅 Got timestamps for ${timestamps.size} human messages`);
+        console.log(`💭 Got thinking for ${thinkingMap.size} assistant messages`);
       }
 
       const humanButtons = getCopyButtons(false);
@@ -245,7 +305,7 @@ function setupClaudeExporter() {
       await triggerCopyButtons(claudeButtons);
       await waitForClipboardOperations(capturedResponses, claudeButtons.length);
 
-      completeExport(timestamps);
+      completeExport(timestamps, thinkingMap);
 
     } catch (error) {
       statusDiv.textContent = `Error: ${error.message}`;
@@ -256,7 +316,7 @@ function setupClaudeExporter() {
     }
   }
 
-  function completeExport(timestamps) {
+  function completeExport(timestamps, thinkingMap) {
     interceptorActive = false;
 
     if (humanMessages.length === 0 && capturedResponses.length === 0) {
@@ -265,7 +325,7 @@ function setupClaudeExporter() {
       return;
     }
 
-    const markdown = buildMarkdown(timestamps);
+    const markdown = buildMarkdown(timestamps, thinkingMap);
     const filename = `${getConversationTitle()}.md`;
     downloadMarkdown(markdown, filename);
 
@@ -277,6 +337,7 @@ function setupClaudeExporter() {
 
   function cleanup() {
     navigator.clipboard.writeText = originalWriteText;
+    navigator.clipboard.write = originalWrite;
     if (document.body.contains(statusDiv)) {
       document.body.removeChild(statusDiv);
     }
