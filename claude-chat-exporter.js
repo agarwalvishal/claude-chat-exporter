@@ -245,7 +245,8 @@ function setupClaudeExporter() {
         let body = '';
         if (thinking?.length) {
           for (const t of thinking) {
-            body += `<details>\n<summary>Thinking</summary>\n\n${t}\n\n</details>\n\n`;
+            const quoted = t.split('\n').map(line => line ? `> ${line}` : '>').join('\n');
+            body += `> **Thinking**\n>\n${quoted}\n\n`;
           }
         }
         body += claudeText;
