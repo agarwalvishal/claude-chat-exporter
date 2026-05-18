@@ -1,5 +1,10 @@
 function setupClaudeExporter() {
-  const originalWriteText = navigator.clipboard.writeText;
+  // Save originals so we can restore them on cleanup
+  const originalWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+  const originalWrite = navigator.clipboard.write
+    ? navigator.clipboard.write.bind(navigator.clipboard)
+    : null;
+
   const capturedResponses = [];
   const humanMessages = [];
   let conversationData = null;
@@ -33,7 +38,6 @@ function setupClaudeExporter() {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // Format ISO timestamp to readable format
   function formatTimestamp(isoString) {
     if (!isoString) return null;
     return new Date(isoString).toLocaleString('en-US', {
@@ -42,7 +46,6 @@ function setupClaudeExporter() {
     });
   }
 
-  // Fetch conversation data from Claude API to get timestamps
   async function fetchConversationData() {
     try {
       const conversationId = window.location.pathname.split('/').pop();
@@ -72,9 +75,6 @@ function setupClaudeExporter() {
     }
   }
 
-  // Build a content → timestamp map for human messages from API response.
-  // Matching by content avoids index misalignment caused by hidden/system
-  // messages that the API returns but the UI does not display.
   function getMessageTimestamps(data) {
     const map = new Map();
     if (!data?.chat_messages) return map;
@@ -90,7 +90,6 @@ function setupClaudeExporter() {
   }
 
   function getConversationTitle() {
-    // First try to get from API data
     if (conversationData?.name) {
       const title = conversationData.name.trim();
       if (title && title !== 'New conversation') {
@@ -104,7 +103,6 @@ function setupClaudeExporter() {
       }
     }
 
-    // Fallback to DOM
     const titleElement = document.querySelector(SELECTORS.conversationTitle);
     const title = titleElement?.textContent?.trim();
 
@@ -121,17 +119,49 @@ function setupClaudeExporter() {
       .substring(0, 100);
   }
 
-  // Intercept clipboard writes and route to the active capture target
+  // Shared capture function used by both clipboard interceptors
+  function captureContent(text) {
+    if (!interceptorActive || !text) return;
+    const type = currentCapture === humanMessages ? 'user' : 'claude';
+    console.log(`📋 Captured ${type} message ${currentCapture.length + 1}`);
+    currentCapture.push({ type, content: text });
+    updateStatus();
+  }
+
+  // Intercept the plain-text API
   navigator.clipboard.writeText = function(text) {
-    if (interceptorActive && text) {
-      const type = currentCapture === humanMessages ? 'user' : 'claude';
-      console.log(`📋 Captured ${type} message ${currentCapture.length + 1}`);
-      currentCapture.push({ type, content: text });
-      updateStatus();
-    }
+    captureContent(text);
+    return Promise.resolve();
   };
 
-  // Create status indicator
+  // Intercept the rich ClipboardItem API (this is what modern Claude uses)
+  if (originalWrite) {
+    navigator.clipboard.write = async function(items) {
+      if (!interceptorActive || !items) return Promise.resolve();
+      for (const item of items) {
+        try {
+          // Prefer text/plain (which is markdown), fall back to text/html stripped
+          if (item.types && item.types.includes('text/plain')) {
+            const blob = await item.getType('text/plain');
+            const text = await blob.text();
+            captureContent(text);
+          } else if (item.types && item.types.includes('text/html')) {
+            const blob = await item.getType('text/html');
+            const html = await blob.text();
+            // crude html→text fallback only if there was no plain text variant
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            captureContent(tmp.textContent || tmp.innerText || '');
+          }
+        } catch (e) {
+          console.warn('Failed to read clipboard item:', e);
+        }
+      }
+      return Promise.resolve();
+    };
+  }
+
+  // Status indicator
   const statusDiv = document.createElement('div');
   statusDiv.style.cssText = `
     position: fixed; top: 10px; right: 10px; z-index: 10000;
@@ -145,9 +175,6 @@ function setupClaudeExporter() {
     statusDiv.textContent = `Human: ${humanMessages.length} | Claude: ${capturedResponses.length}`;
   }
 
-  // Returns copy buttons from action bars filtered by message type.
-  // claudeOnly=true  → action bars WITH a feedback button (Claude responses)
-  // claudeOnly=false → action bars WITHOUT a feedback button (human messages)
   function getCopyButtons(claudeOnly) {
     const actionGroups = document.querySelectorAll(SELECTORS.messageActionsGroup);
     const buttons = [];
@@ -172,8 +199,6 @@ function setupClaudeExporter() {
       } catch (error) {
         console.warn(`Failed to click button ${i + 1}:`, error);
       }
-
-      // Only delay between clicks, not after the last one
       if (i < buttons.length - 1) {
         await delay(DELAYS.copy);
       }
@@ -199,14 +224,27 @@ function setupClaudeExporter() {
   }
 
   async function waitForClipboardOperations(targetArray, expectedCount) {
-    const maxWaitTime = 2000;
+    const maxWaitTime = 3000;
     const checkInterval = 100;
     let elapsed = 0;
+    let lastCount = -1;
+    let stableTicks = 0;
 
     while (elapsed < maxWaitTime) {
       if (targetArray.length >= expectedCount) {
         console.log(`✅ All ${expectedCount} responses captured in ${elapsed}ms`);
         return;
+      }
+      // If captures have stopped growing for 500ms, bail early
+      if (targetArray.length === lastCount) {
+        stableTicks++;
+        if (stableTicks >= 5 && targetArray.length > 0) {
+          console.log(`✋ Captures stable at ${targetArray.length}/${expectedCount}, moving on`);
+          return;
+        }
+      } else {
+        stableTicks = 0;
+        lastCount = targetArray.length;
       }
       await delay(checkInterval);
       elapsed += checkInterval;
@@ -217,7 +255,6 @@ function setupClaudeExporter() {
 
   async function startExport() {
     try {
-      // Fetch conversation data from API (for timestamps and title)
       statusDiv.textContent = 'Fetching conversation data...';
       conversationData = await fetchConversationData();
       const timestamps = getMessageTimestamps(conversationData);
@@ -228,25 +265,23 @@ function setupClaudeExporter() {
 
       const humanButtons = getCopyButtons(false);
       const claudeButtons = getCopyButtons(true);
+      console.log(`🔍 Found ${humanButtons.length} human + ${claudeButtons.length} Claude copy buttons`);
 
       if (humanButtons.length === 0 && claudeButtons.length === 0) {
         throw new Error('No copy buttons found!');
       }
 
-      // Phase 1: Human messages
       statusDiv.textContent = 'Copying human messages...';
       currentCapture = humanMessages;
       await triggerCopyButtons(humanButtons);
       await waitForClipboardOperations(humanMessages, humanButtons.length);
 
-      // Phase 2: Claude responses
       statusDiv.textContent = 'Copying Claude responses...';
       currentCapture = capturedResponses;
       await triggerCopyButtons(claudeButtons);
       await waitForClipboardOperations(capturedResponses, claudeButtons.length);
 
       completeExport(timestamps);
-
     } catch (error) {
       statusDiv.textContent = `Error: ${error.message}`;
       statusDiv.style.background = '#f44336';
@@ -271,21 +306,19 @@ function setupClaudeExporter() {
 
     statusDiv.textContent = `✅ Downloaded: ${filename}`;
     statusDiv.style.background = '#4CAF50';
-
     console.log('🎉 Export complete!');
   }
 
   function cleanup() {
     navigator.clipboard.writeText = originalWriteText;
+    if (originalWrite) navigator.clipboard.write = originalWrite;
     if (document.body.contains(statusDiv)) {
       document.body.removeChild(statusDiv);
     }
   }
 
-  // Initialize
   updateStatus();
   setTimeout(startExport, 1000);
 }
 
-// Run the exporter
 setupClaudeExporter();
