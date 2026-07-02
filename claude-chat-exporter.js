@@ -7,11 +7,11 @@ function setupClaudeExporter() {
   let interceptorActive = true;
 
   // DOM Selectors - easily modifiable if Claude's UI changes
-  const SELECTORS = {
-    copyButton: 'button[data-testid="action-bar-copy"]',
-    conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
-    messageActionsGroup: '[role="group"][aria-label="Message actions"]',
-    feedbackButton: 'button[aria-label="Give positive feedback"]'
+  const SELECTORS = {  
+    copyButton: 'button[data-testid="action-bar-copy"]',  
+    conversationTitle: '[data-testid="chat-title-split"] .truncate, [data-testid="chat-title-split"] button span.truncate',  
+    messageActionsGroup: '[role="toolbar"][aria-label="Message actions"]',  
+    feedbackButton: 'button[aria-label="Give positive feedback"]'  
   };
 
   const DELAYS = {
