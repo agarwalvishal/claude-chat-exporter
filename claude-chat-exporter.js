@@ -12,7 +12,6 @@ function setupClaudeExporter() {
     conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
     feedbackButton: 'button[aria-label="Give positive feedback"], button[aria-label="Read aloud"]'
   };
-, button[aria-label="Read aloud"]'
   const DELAYS = {
     copy: 100
   };
