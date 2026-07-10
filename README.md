@@ -123,8 +123,8 @@ If Claude's interface changes, update the `SELECTORS` object:
 ```javascript
 const SELECTORS = {
   copyButton: 'button[data-testid="action-bar-copy"]',
-  conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
-  messageActionsGroup: '[role="group"][aria-label="Message actions"]',
+  conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate, [data-testid="chat-title-split"] .truncate, [data-testid="chat-title-split"] button span.truncate',
+  messageActionsGroup: '[aria-label="Message actions"]',
   feedbackButton: 'button[aria-label="Give positive feedback"]'
 };
 ```
