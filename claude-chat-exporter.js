@@ -9,8 +9,8 @@ function setupClaudeExporter() {
   // DOM Selectors - easily modifiable if Claude's UI changes
   const SELECTORS = {
     copyButton: 'button[data-testid="action-bar-copy"]',
-    conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate',
-    messageActionsGroup: '[role="group"][aria-label="Message actions"]',
+    conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate, [data-testid="chat-title-split"] .truncate, [data-testid="chat-title-split"] button span.truncate',
+    messageActionsGroup: '[aria-label="Message actions"]',
     feedbackButton: 'button[aria-label="Give positive feedback"]'
   };
 
@@ -231,6 +231,12 @@ function setupClaudeExporter() {
 
       if (humanButtons.length === 0 && claudeButtons.length === 0) {
         throw new Error('No copy buttons found!');
+      }
+
+      // A conversation normally has both message types; a one-sided result
+      // suggests the attribution markers changed and export may mislabel
+      if ((humanButtons.length === 0) !== (claudeButtons.length === 0)) {
+        console.warn(`⚠️ Suspicious: ${humanButtons.length} human vs ${claudeButtons.length} Claude copy buttons — attribution markers may have changed`);
       }
 
       // Phase 1: Human messages
