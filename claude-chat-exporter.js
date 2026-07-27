@@ -11,7 +11,7 @@ function setupClaudeExporter() {
     copyButton: 'button[data-testid="action-bar-copy"]',
     conversationTitle: '[data-testid="chat-title-button"] .truncate, button[data-testid="chat-title-button"] div.truncate, [data-testid="chat-title-split"] .truncate, [data-testid="chat-title-split"] button span.truncate',
     messageActionsGroup: '[aria-label="Message actions"]',
-    feedbackButton: 'button[aria-label="Give positive feedback"]'
+    feedbackButton: 'button[aria-label="Give positive feedback"], button[aria-label="Good response"]'
   };
 
   const DELAYS = {
