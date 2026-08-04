@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Chat Exporter — one-click bookmarklet</title>
+<meta name="description" content="Export any Claude.ai conversation to clean, faithful Markdown with one click — artifacts, code, tables, math and attachments included. Runs in your browser, no servers, open source. Obsidian & RAG ready.">
+<style>
+  :root {
+    --accent: #d97757;
+    --accent-strong: #c25f3f;
+    --bg: #faf9f6;
+    --card: #ffffff;
+    --text: #1c1b19;
+    --muted: #6b6a67;
+    --border: rgba(0,0,0,.09);
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131417;
+      --card: #1c1e22;
+      --text: #ececec;
+      --muted: #9a9a9a;
+      --border: rgba(255,255,255,.10);
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6; margin: 0; color: var(--text); background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+  .wrap { max-width: 760px; margin-inline: auto; padding: 0 1.25rem 2rem; }
+
+  /* top bar */
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; }
+  .brand { display: flex; align-items: center; gap: .55rem; font-weight: 700; font-size: 1.02rem; }
+  .brand .mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent);
+    display: grid; place-items: center; font-size: .95rem; }
+  .star { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none;
+    font-size: .88rem; font-weight: 600; padding: .42rem .8rem; border: 1px solid var(--border);
+    border-radius: 999px; background: var(--card); box-shadow: var(--shadow); transition: .15s; }
+  .star:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .star svg { width: 16px; height: 16px; fill: currentColor; }
+  .star .count { font-variant-numeric: tabular-nums; margin-left: .3rem; color: var(--muted); }
+
+  /* hero */
+  .hero { text-align: center; padding: 2.2rem 0 1rem; }
+  .hero h1 { font-size: 2.15rem; line-height: 1.15; margin: 0 0 .6rem; letter-spacing: -.02em; }
+  .hero .lead { font-size: 1.1rem; color: var(--muted); margin: 0 auto .7rem; max-width: 32rem; }
+  .hero .trust { font-size: .85rem; color: var(--muted); margin: 0 auto 1.5rem; }
+  .hero .trust strong { color: var(--accent); }
+  .drag { display: inline-flex; align-items: center; gap: .5rem; margin: 0 0 .55rem;
+    padding: .95rem 1.7rem; background: var(--accent); color: #fff; text-decoration: none;
+    font-weight: 700; font-size: 1.15rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(217,119,87,.35);
+    cursor: grab; transition: .15s; }
+  .drag:hover { background: var(--accent-strong); transform: translateY(-1px); }
+  .drag[aria-disabled="true"] { opacity: .55; cursor: default; box-shadow: none; }
+  .hint { font-size: .9rem; color: var(--muted); margin: 0; }
+
+  /* capability strip */
+  .caps { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; margin: 2rem 0; }
+  .cap { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: .95rem; box-shadow: var(--shadow); }
+  .cap .ic { font-size: 1.3rem; line-height: 1; }
+  .cap b { display: block; margin-top: .4rem; font-size: .92rem; }
+  .cap span { font-size: .82rem; color: var(--muted); }
+
+  h2.sec { font-size: 1.1rem; margin: 2.2rem 0 .8rem; }
+
+  /* steps */
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: grid; gap: .6rem; }
+  ol.steps li { counter-increment: s; position: relative; padding: .8rem .95rem .8rem 3rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  ol.steps li::before { content: counter(s); position: absolute; left: .8rem; top: 50%;
+    transform: translateY(-50%); width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
+
+  .note { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1rem 1.15rem; font-size: .93rem; box-shadow: var(--shadow); margin: 1.4rem 0; }
+  .note.privacy strong { color: var(--accent); }
+  .update { font-size: .88rem; color: var(--muted); margin: 1.2rem 0; text-align: center; }
+  .update strong { color: var(--text); }
+
+  details { margin: 1.25rem 0; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: .5rem 1.05rem; box-shadow: var(--shadow); }
+  summary { cursor: pointer; font-weight: 600; padding: .4rem 0; }
+  button.copy { font: inherit; padding: .45rem .9rem; border-radius: 8px; border: 1px solid var(--border);
+    background: transparent; color: inherit; cursor: pointer; }
+  button.copy:hover { background: rgba(127,127,127,.12); }
+
+  footer { margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border);
+    display: flex; gap: .8rem 1rem; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    font-size: .9rem; color: var(--muted); }
+  footer .ask { margin: 0; }
+  footer .ask a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  footer .ask a:hover { text-decoration: underline; }
+  footer a.pill { text-decoration: none; padding: .35rem .8rem; border-radius: 999px;
+    border: 1px solid var(--border); color: inherit; }
+  footer a.pill:hover { border-color: var(--accent); }
+
+  @media (max-width: 640px) {
+    .caps { grid-template-columns: repeat(2, 1fr); }
+    .hero h1 { font-size: 1.75rem; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand"><span class="mark">📥</span> Claude Chat Exporter</div>
+      <a class="star" href="https://github.com/agarwalvishal/claude-chat-exporter" target="_blank" rel="noopener" title="Star this project on GitHub">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        Star<span class="count" id="star-count" hidden></span>
+      </a>
+    </div>
+
+    <header class="hero">
+      <h1>Export any Claude chat to perfect Markdown</h1>
+      <p class="lead">One click. A clean, faithful <code>.md</code> file — exactly what Claude wrote.</p>
+      <p class="trust">🔒 <strong>Private by design</strong> · runs in your browser · no servers · no tracking · open source</p>
+      <a id="bm" class="drag" href="#" aria-disabled="true">📥 Claude Export</a>
+      <p class="hint" id="hint">Preparing the latest version…</p>
+    </header>
+
+    <div class="caps">
+      <div class="cap"><div class="ic">🎯</div><b>100% fidelity</b><span>Tables, math &amp; code, byte-perfect</span></div>
+      <div class="cap"><div class="ic">🧩</div><b>Artifacts &amp; widgets</b><span>Captured as clean code blocks</span></div>
+      <div class="cap"><div class="ic">📎</div><b>Attachments</b><span>Images, docs &amp; files included</span></div>
+      <div class="cap"><div class="ic">🗂️</div><b>Obsidian &amp; RAG ready</b><span>Frontmatter + clean structure</span></div>
+    </div>
+
+    <h2 class="sec">Get started in 10 seconds</h2>
+    <ol class="steps">
+      <li><strong>Drag</strong> the “📥 Claude Export” button above onto your browser's bookmarks bar.</li>
+      <li>Open any conversation on <a href="https://claude.ai" target="_blank" rel="noopener">claude.ai</a>.</li>
+      <li><strong>Click the bookmark</strong> — a brief status appears and your <code>.md</code> file downloads automatically.</li>
+    </ol>
+
+    <p class="update"><strong>Always up to date:</strong> the bookmarklet checks for updates and flags when a newer version is available — just re-drag (or re-copy) to grab it.</p>
+
+    <p class="note privacy">🔒 <strong>Private by design — no servers, no tracking.</strong> This is just an open-source script that runs in your browser; your conversation is read from Claude's own site (the one you're already on) over your existing session, processed locally, and never uploaded anywhere. Nothing you export is sent to us or anyone else.</p>
+
+    <details>
+      <summary>Can't drag it? Add the bookmark manually</summary>
+      <p>Create a new bookmark, then paste the copied code as its <em>URL/Address</em>. Open a Claude conversation and click the bookmark.</p>
+      <p><button class="copy" id="copy" disabled>Copy bookmarklet code</button> <span id="copied"></span></p>
+    </details>
+
+    <footer>
+      <p class="ask">Enjoying it? A <a href="https://github.com/agarwalvishal/claude-chat-exporter" target="_blank" rel="noopener">⭐ star on GitHub</a> helps others discover it.</p>
+      <a class="pill" href="https://github.com/agarwalvishal/claude-chat-exporter#readme" target="_blank" rel="noopener">📖 Docs</a>
+    </footer>
+  </div>
+
+<script>
+  // ─────────────────────────────────────────────────────────────────────────
+  // This page assembles the bookmarklet HERE, on the friendly github.io origin,
+  // and only ever bakes the export script into a draggable link. The dragged
+  // bookmarklet runs *inline* on claude.ai (a browser-level CSP exemption) — it
+  // never fetches-and-evals code there, so Claude's strict CSP doesn't affect it.
+  //
+  // claude-chat-exporter.js is embedded VERBATIM and is never modified. The only
+  // added behaviour is a self-contained "update available" shim (below), which
+  // lives entirely in this packaging layer — not in the core script.
+  // ─────────────────────────────────────────────────────────────────────────
+  var RAW  = "https://raw.githubusercontent.com/agarwalvishal/claude-chat-exporter/main/claude-chat-exporter.js";
+  var PAGE = "https://agarwalvishal.github.io/claude-chat-exporter/";
+
+  // Cheap change-detection hash (djb2). Not security — just "did the file change?"
+  function hash(s) { var h = 5381, i = s.length; while (i) h = (h * 33) ^ s.charCodeAt(--i); return (h >>> 0).toString(16); }
+
+  // Self-contained update-notice shim, baked into the bookmarklet. "{{HASH}}" is
+  // replaced with the hash of the core script this bookmarklet was built from.
+  // At run time it re-fetches the latest core, hashes it, and if they differ shows
+  // a one-click "update available" notice. It does not touch the core script.
+  var SHIM = [
+    '(function(){',
+      'try{',
+        'var B="{{HASH}}",U=' + JSON.stringify(RAW) + ',P=' + JSON.stringify(PAGE) + ';',
+        'function h(s){var x=5381,i=s.length;while(i)x=(x*33)^s.charCodeAt(--i);return(x>>>0).toString(16);}',
+        'fetch(U).then(function(r){return r.text();}).then(function(t){',
+          'if(h(t)!==B){',
+            'var d=document.createElement("div");',
+            'd.textContent="\\u26A0\\uFE0F Claude Chat Exporter: update available \\u2014 click to re-grab";',
+            'd.style.cssText="position:fixed;top:52px;right:10px;z-index:10001;background:#d97757;color:#fff;padding:8px 12px;border-radius:6px;font:12px/1.4 monospace;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.3);max-width:300px";',
+            'd.onclick=function(){window.open(P,"_blank");};',
+            'document.body.appendChild(d);',
+            'setTimeout(function(){d.remove();},15000);',
+          '}',
+        // Quiet by default — a failed update check is not the user's problem.
+        // console.debug is hidden unless the console level is "Verbose", so a
+        // maintainer can still spot a CSP block or outage that would otherwise
+        // disable update notices for everyone with no signal at all.
+        '}).catch(function(e){try{console.debug("[claude-chat-exporter] update check failed:",e);}catch(_){}});',
+      '}catch(e){}',
+    '})();'
+  ].join('');
+
+  var bm = document.getElementById("bm");
+  var hint = document.getElementById("hint");
+  var copyBtn = document.getElementById("copy");
+  var href = null;
+
+  // Clicking (instead of dragging) would run the exporter on THIS page and do nothing useful.
+  bm.addEventListener("click", function (e) {
+    e.preventDefault();
+    hint.textContent = "☝️ Drag it to your bookmarks bar — clicking here does nothing.";
+  });
+
+  fetch(RAW)
+    .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+    .then(function (core) {
+      var shim = SHIM.replace("{{HASH}}", hash(core));
+      var full = "(function(){" + shim + "\n" + core + "\n})();";
+      href = "javascript:" + encodeURIComponent(full);
+      bm.href = href;
+      bm.removeAttribute("aria-disabled");
+      hint.textContent = "↑ Drag this button to your bookmarks bar (don't just click it here).";
+      copyBtn.disabled = false;
+    })
+    .catch(function (e) {
+      hint.textContent = "Couldn't load the latest script (" + e.message + "). Try refreshing.";
+    });
+
+  copyBtn.addEventListener("click", function () {
+    if (!href) return;
+    navigator.clipboard.writeText(href).then(function () {
+      document.getElementById("copied").textContent = "Copied ✓";
+    });
+  });
+
+  // Live star count — enhancement only; the chip links to the repo regardless.
+  fetch("https://api.github.com/repos/agarwalvishal/claude-chat-exporter")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (d && typeof d.stargazers_count === "number") {
+        var n = d.stargazers_count;
+        var el = document.getElementById("star-count");
+        el.textContent = n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
+        el.hidden = false;
+      }
+    })
+    .catch(function () {});
+</script>
+</body>
+</html>
