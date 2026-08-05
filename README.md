@@ -165,7 +165,7 @@ Drop the `.md` into your vault or ingestion pipeline and it just works — no cl
 
 ## Maintenance
 
-The script is **fully DOM-free** and the export is a single API read — there's nothing to configure. The one point of coupling is the shape of Claude's API response, handled in `getOrderedMessages()` / `renderToolUse()`: if Claude ever changes that response (or adds a new tool type), those functions are where to update, and the expected shape is documented in [`CLAUDE.md`](CLAUDE.md).
+The script **reads nothing from Claude's rendered page** — no CSS selectors at all — and the export is a single API read, so there's nothing to configure. The one point of coupling is the shape of Claude's API response, handled in `getOrderedMessages()` / `renderToolUse()`: if Claude ever changes that response (or adds a new tool type), those functions are where to update, and the expected shape is documented in [`CLAUDE.md`](CLAUDE.md).
 
 ## Browser Compatibility
 
