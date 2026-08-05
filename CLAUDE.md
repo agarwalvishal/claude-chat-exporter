@@ -26,7 +26,15 @@ The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bot
    - **Ordering** follows the *current branch*: walk from `data.current_leaf_message_uuid` up the `parent_message_uuid` chain and reverse (so a regenerated response exports the path actually on screen). Falls back to sorting `chat_messages` by `index`.
    - **Content**: each message's `content` is an array of typed blocks (`text`, `thinking`, `tool_use`, `tool_result`). Walk them **in order** — emit `text` blocks and `tool_use` blocks (via `renderToolUse`), skip `thinking`/`tool_result` — so text and special elements stay interleaved. Messages that end up empty are dropped (the API also returns hidden/system messages the UI never shows). `renderToolUse` renders only the three content-bearing tools (`artifacts`→`content`, `create_file`→`file_text`, `visualize:show_widget`→`widget_code`) as titled fenced code blocks with an API-derived kind label (`Artifact:` / `File:` / `Widget:`, no emoji); **every other tool** (web search, bash, file view/edit, display widgets, unknown) is skipped (their names are logged once at `console.debug` — hidden from users, but a maintainer can enable "Verbose" to spot a new content tool to add). Artifacts are special — `collectArtifacts` folds each `id` through `create` / `update` (an `old_str`→`new_str` diff) / `rewrite` into its final content, and it's rendered **once, at its last edit** (matched by `version_uuid`).
 
-3. **`buildMarkdown(messages)`** — emits YAML frontmatter (`title`, `source`, `model`, `exported`) then one `# Human — <timestamp>` / `# Claude — <timestamp>` header per turn (H1 so Claude's own `##`/`###` content nests beneath it — keeps the outline correct for RAG chunking and Obsidian). No separate title heading or `---` rules. Appends an inline word-based notice to **incomplete** messages via `incompleteNote()`, flagging the two signals verified in the API — `truncated` → **Truncated**, `stop_reason: 'user_canceled'` → **Interrupted** (everything else, incl. a rare length-limited response, is left unannotated rather than guessing an unverified `stop_reason` value). The exported document is **emoji-free**; emojis appear only in the transient status box / console. Tuned for RAG/Obsidian ingestion.
+3. **`buildMarkdown(messages)`** — emits YAML frontmatter (`title`, `source`, `model`, `exported`) then one `# Human — <timestamp>` / `# Claude — <timestamp>` header per turn (H1 so Claude's own `##`/`###` content nests beneath it — keeps the outline correct for RAG chunking and Obsidian). No separate title heading or `---` rules. Appends an inline word-based notice to **incomplete** messages via `incompleteNote()` — `truncated` → **Truncated**, `stop_reason: 'user_canceled'` → **Interrupted** (everything else, including a length-limited response, is left unannotated rather than guessing at an unobserved `stop_reason` value). Returns `{ markdown, interrupted, truncated }` — **counts, not a boolean**, because the two mean different things to the reader and only one of them is a problem:
+
+| Signal | Meaning | Status box |
+|---|---|---|
+| `stop_reason: 'user_canceled'` | The user stopped the response; there is no further content | ✅ green — the export is complete and faithful |
+| `truncated` | The API set a flag whose trigger we have never observed | ⚠️ orange, on precaution |
+| `warnings[]` | Something didn't reconstruct cleanly (see the four `warn()` sites) | ⚠️ orange |
+
+`startExport` therefore computes `clean = warnings.length === 0 && truncated === 0`. **Do not fold `interrupted` back into that** — treating a response the user deliberately stopped as a warning tells people a perfectly good export went wrong, which is the bug this replaced. Wording stays observational (*"N messages flagged truncated"*) since the meaning is unconfirmed. The exported document is **emoji-free**; emojis appear only in the transient status box / console. Tuned for RAG/Obsidian ingestion.
 
 4. **Title + download** — `getConversationTitle()` uses `conversationData.name` (falls back to `'claude_conversation'`; fully DOM-free), then `downloadMarkdown()` writes the `.md` file.
 
@@ -42,8 +50,17 @@ The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bot
     index,                       // fallback ordering
     sender: 'human' | 'assistant',
     created_at,                  // ISO timestamp
-    truncated,                   // bool; rare source-data content truncation → inline "Truncated" note
-    stop_reason,                 // assistant only: 'end_turn'/'stop_sequence' = complete, 'user_canceled' = interrupted (flagged); other values left unannotated
+    truncated,                   // bool. VERIFIED to exist (probed uncoerced 2026-07-27; the
+                                 // key came back present as `false` on every message, and an
+                                 // absent field would have been dropped from the JSON). Never
+                                 // observed `true`, so its trigger and meaning are UNKNOWN —
+                                 // the name suggests content truncation but nothing confirms
+                                 // it. Flagged inline + ⚠️ on precaution, worded as an
+                                 // observation, never as a claim that content is missing.
+    stop_reason,                 // assistant only. 'user_canceled' = interrupted — VERIFIED
+                                 // against a real stopped response. 'end_turn'/'stop_sequence'
+                                 // as the "complete" values are ASSUMED, not observed. Other
+                                 // values left unannotated rather than guessed at.
     content: [{ type: 'text' | 'thinking' | 'tool_use' | 'tool_result', text?, ... }],
     files:       [ /* uploaded files, see below */ ],
     attachments: [ /* text-extracted docs, see below */ ]
@@ -79,4 +96,4 @@ This is an **internal, undocumented Anthropic endpoint** — no public docs, no 
 
 Exports every message's answer text plus its **content-bearing special elements** on the current branch: artifacts (reconstructed to their final version, rendered once), created files, and `visualize` widgets (charts/diagrams) as fenced code blocks. **Every other tool call is skipped** — web search, bash, file view/edit, and display widgets (maps, recipes, image/place search); their result URLs are ephemeral (the API flags them `is_expired`). Claude's internal `thinking` blocks are also skipped — **excluded by design, not deferred**: exploratory reasoning and discarded hypotheses pollute RAG retrieval and the document outline, and web search results would bake `is_expired` dead links into a document meant to stay useful offline. Treat requests to add either as out of scope (see issues #11 and #19). (`visualize:show_widget` and `create_file` have no revision model, so a "refined" widget/file is a new block and renders each time; only `artifacts` reconstruct.)
 
-Attachments: `describeAttachments()` renders each attachment above the message text, by what the API offers — `m.files` images → embed (`preview_url`); `m.files` documents → link (`document_asset.url`, `page_count`); `m.files` blobs (audio, no URL) → named; `m.attachments` text extractions (.md/.docx/…) → their `extracted_content` inlined as a **blockquote** (so the attachment's own headings stay quoted, out of the document outline). Each carries a word label — **`Attachment: <name> · <meta>`** (no emoji), consistent with `Artifact:`/`File:`/`Widget:`. Runs for **every** message, so an attachment-only turn is never dropped. Text content is inlined (self-contained/RAG-complete); the raw *binary* bytes are not — a portable ZIP bundling the originals is the deferred/premium step.
+Attachments: `describeAttachments()` renders each attachment above the message text, by what the API offers — `m.files` images → embed (`preview_url`); `m.files` documents → link (`document_asset.url`, `page_count`); `m.files` blobs (audio, no URL) → named; `m.attachments` text extractions (.md/.docx/…) → their `extracted_content` inlined as a **blockquote** (so the attachment's own headings stay quoted, out of the document outline). Each carries a word label — **`Attachment: <name> · <meta>`** (no emoji), consistent with `Artifact:`/`File:`/`Widget:`. Runs for **every** message, so an attachment-only turn is never dropped. Text content is inlined (self-contained/RAG-complete); the raw *binary* bytes are not — a portable ZIP bundling the originals is deferred work.

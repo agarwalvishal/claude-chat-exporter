@@ -399,7 +399,12 @@ function setupClaudeExporter() {
     frontMatter.push(`exported: ${new Date().toISOString().slice(0, 10)}`, '---', '');
 
     let markdown = frontMatter.join('\n') + '\n';
-    let anyIncomplete = false;
+    // Counted separately because they mean different things to the reader: an
+    // interrupted response means nothing is missing (the user stopped it, so there
+    // is no more content), whereas `truncated` is a flag whose meaning we can't
+    // confirm. Only the latter degrades the status box — see startExport.
+    let interrupted = 0;
+    let truncated = 0;
 
     for (const message of messages) {
       const who = message.sender === 'human' ? 'Human' : 'Claude';
@@ -409,14 +414,15 @@ function setupClaudeExporter() {
       let body = message.text;
       const note = incompleteNote(message);
       if (note) {
-        anyIncomplete = true;
+        // Mirrors incompleteNote's precedence: `truncated` is checked first and wins.
+        if (message.truncated) truncated++; else interrupted++;
         body += `\n\n${note}`;
       }
 
       markdown += `${header}\n\n${body}\n\n`;
     }
 
-    return { markdown, anyIncomplete };
+    return { markdown, interrupted, truncated };
   }
 
   // Status indicator
@@ -454,14 +460,20 @@ function setupClaudeExporter() {
           : 'No messages found in this conversation.');
       }
 
-      const { markdown, anyIncomplete } = buildMarkdown(messages);
+      const { markdown, interrupted, truncated } = buildMarkdown(messages);
       const filename = `${getConversationTitle()}.md`;
       downloadMarkdown(markdown, filename);
 
+      // Two categories, deliberately separated. An interrupted response is a fact
+      // about the *conversation* — the export is complete and faithful — so it must
+      // not colour the box like a failure. Only `truncated` (whose meaning is
+      // unconfirmed, so treated as a warning on precaution) and real processing
+      // `warnings` degrade the status.
       const notes = [];
-      if (anyIncomplete) notes.push('some responses incomplete');
+      if (interrupted) notes.push(`${interrupted} interrupted response${interrupted === 1 ? '' : 's'}`);
+      if (truncated) notes.push(`${truncated} message${truncated === 1 ? '' : 's'} flagged truncated`);
       if (warnings.length) notes.push(`${warnings.length} warning${warnings.length === 1 ? '' : 's'} — see console`);
-      const clean = notes.length === 0;
+      const clean = warnings.length === 0 && truncated === 0;
       statusDiv.textContent = `${clean ? '✅' : '⚠️'} Exported ${messages.length} messages${notes.length ? ` (${notes.join('; ')})` : ''}: ${filename}`;
       statusDiv.style.background = clean ? '#4CAF50' : '#ff9800';
       console.log(`🎉 Export complete — ${messages.length} messages → ${filename}`);

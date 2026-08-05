@@ -184,8 +184,10 @@ The script shows a small status box while it runs:
 
 - `Fetching conversation…` - Reading the conversation from Claude's API
 - `✅ Exported N messages: filename.md` - Success!
-- `⚠️ Exported N messages (some responses incomplete): filename.md` - Success, but one or more messages were interrupted or truncated in the source data (each is flagged inline)
-- `Error: …` - Something went wrong (details in the console)
+- `✅ Exported N messages (1 interrupted response): filename.md` - Success. A response was stopped before Claude finished, so there was never any more of it to export — **your file is complete**. The message is flagged inline so the short answer isn't mistaken for a bug
+- `⚠️ Exported N messages (1 message flagged truncated): filename.md` - Claude's API marked a message `truncated`. It's flagged inline; compare that message against the page if you want to be sure nothing is missing
+- `⚠️ Exported N messages (1 warning — see console): filename.md` - The file downloaded, but something didn't reconstruct cleanly — usually an artifact whose edit couldn't be applied to its original text, occasionally an unexpected value from the API. Each warning is logged to the console as it happens
+- `Error: …` - The export didn't happen, and the box itself says why — e.g. `Open a specific Claude conversation first…` or `your session may have expired; reload and sign in`. The console logs the full error too
 
 ### Common Issues
 
