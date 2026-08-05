@@ -184,12 +184,16 @@
       'try{',
         'var B="{{HASH}}",U=' + JSON.stringify(RAW) + ',P=' + JSON.stringify(PAGE) + ';',
         'function h(s){var x=5381,i=s.length;while(i)x=(x*33)^s.charCodeAt(--i);return(x>>>0).toString(16);}',
-        'fetch(U).then(function(r){return r.text();}).then(function(t){',
+        // cache:"no-cache" revalidates instead of trusting the browser copy. The raw
+        // endpoint sends max-age=300, and this fetch runs on every export — so without
+        // it the check compares against content up to 5 minutes stale, and the cache it
+        // populates is the same one the install page reads when re-grabbing.
+        'fetch(U,{cache:"no-cache"}).then(function(r){return r.text();}).then(function(t){',
           'if(h(t)!==B){',
             'var d=document.createElement("div");',
             'd.textContent="\\u26A0\\uFE0F Claude Chat Exporter: update available \\u2014 click to re-grab";',
             'd.style.cssText="position:fixed;top:52px;right:10px;z-index:10001;background:#d97757;color:#fff;padding:8px 12px;border-radius:6px;font:12px/1.4 monospace;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.3);max-width:300px";',
-            'd.onclick=function(){window.open(P,"_blank");};',
+            'd.onclick=function(){window.open(P,"_blank");d.remove();};',
             'document.body.appendChild(d);',
             'setTimeout(function(){d.remove();},15000);',
           '}',
@@ -213,7 +217,12 @@
     hint.textContent = "☝️ Drag it to your bookmarks bar — clicking here does nothing.";
   });
 
-  fetch(RAW)
+  // cache:"no-cache" matters most here: this fetch decides which script gets baked into
+  // the bookmarklet. A cached copy would embed a stale exporter *and* its matching hash,
+  // so the result stays self-consistent and never warns — the user silently installs old
+  // code. The shim's own fetch refreshes that cache on every export, so a user arriving
+  // here from the update notice is exactly the one most likely to be served a stale copy.
+  fetch(RAW, { cache: "no-cache" })
     .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
     .then(function (core) {
       var shim = SHIM.replace("{{HASH}}", hash(core));
