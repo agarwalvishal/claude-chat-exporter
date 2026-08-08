@@ -1,6 +1,8 @@
 # Claude Chat Exporter
 
-A JavaScript tool that exports Claude.ai conversations with **perfect markdown fidelity** by reading them straight from Claude's own internal API — the same endpoint the app itself uses. Get complete conversations with both human and AI messages including tables, math, code, and every element Claude supports, always in the right order. It runs entirely in your browser — the tool has **no server of its own**, and the only network call is to Claude's own backend (for your conversation), using your existing session.
+A **privacy-first** tool that exports your Claude.ai conversations to clean Markdown. It runs entirely in your browser — no server of its own, nothing uploaded, no tracking.
+
+Everything comes through — tables, math and code at full fidelity, plus artifacts, created files, charts and attachments — all read directly from Claude's own API. Exports carry YAML frontmatter with one heading per turn, so they drop straight into an **Obsidian** vault or a **RAG** pipeline.
 
 <p align="center">
   <a href="https://agarwalvishal.github.io/claude-chat-exporter/">
