@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-file browser-console script (`claude-chat-exporter.js`) that exports a claude.ai conversation to a markdown file. It runs by pasting the whole file into the browser devtools console while a conversation is open (a one-click bookmarklet in `docs/index.html` wraps the same script). There is **no build system, package manager, test suite, or lint config** — the whole repo is five files: the script, `README.md`, `docs/index.html`, this file, and `LICENSE`.
+A single-file browser-console script (`claude-chat-exporter.js`) that exports a claude.ai conversation to a markdown file. It runs by pasting the whole file into the browser devtools console while a conversation is open (a one-click bookmarklet in `docs/index.html` wraps the same script). There is **no build system, package manager, test suite, or lint config** — the whole repo is the script, `README.md`, `docs/index.html`, this file, `LICENSE`, `.github/FUNDING.yml`, and `.claude/skills/` — none of which any code reads.
 
 To test a change: `node --check claude-chat-exporter.js` for syntax, then paste the edited script into the console on a real claude.ai conversation and observe the on-page status indicator and downloaded `.md` file.
 
@@ -12,11 +12,9 @@ To test a change: `node --check claude-chat-exporter.js` for syntax, then paste 
 
 ## Core design decision
 
-The script **reads nothing from Claude's rendered page**. It takes the conversation directly from claude.ai's own **internal API**, whose response already contains each message's **source markdown** (tables, math, code, etc.) — so fidelity is byte-perfect with zero conversion logic. Any proposed change that reintroduces DOM scraping, clipboard/copy-button capture, or HTML→markdown parsing works against the entire point of the project — reject that direction.
+The script **reads nothing from Claude's rendered page**. It takes the conversation directly from claude.ai's own **internal API**, whose response already contains each message's **source markdown** (tables, math, code, etc.) — so fidelity is byte-perfect with zero conversion logic. **Reject any change that reads the conversation from the page** — DOM scraping, driving Claude's own buttons, intercepting the clipboard, or parsing HTML into markdown. All of it works against the point of the project.
 
-Be precise about this rather than saying "DOM-free", which has caused repeated confusion: the script *does* touch the DOM, it just never **reads Claude's markup**. It calls `document.createElement` for the temporary download link and its own status box, and reads `document.cookie` (`lastActiveOrg`) and `window.location` (conversation id, frontmatter `source`). What it contains is **zero CSS selectors** — no `querySelector`, no `aria-label` matching, no class names. That distinction is what makes the previously-reported class of failure structurally impossible now: when Claude localised its `aria-label` text, the old selectors matched nothing and the exporter reported finding no messages.
-
-(Historical note: earlier versions clicked Claude's "copy" buttons and intercepted the clipboard. That was replaced because it only saw the DOM's *virtualized* window — long conversations exported partially and out of order — and coupled the script to constantly-changing CSS selectors. The API returns the same markdown, complete and ordered, and is far more stable. See git history.)
+**The script contains zero CSS selectors** — no `querySelector`, no `aria-label` matching, no class names — which is what makes Claude's markup and its localisation unable to break it. It does legitimately touch the DOM, so don't "fix" that: `document.createElement` and `document.body` for the download link and status box, `document.cookie` for `lastActiveOrg`, `window.location` for the conversation id. Reading *Claude's* markup is the prohibited part, not touching the DOM at all.
 
 ## How the export works
 
@@ -38,7 +36,7 @@ The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bot
 | `truncated` | The API set a flag whose trigger we have never observed | ⚠️ orange, on precaution |
 | `warnings[]` | Something didn't reconstruct cleanly (see the four `warn()` sites) | ⚠️ orange |
 
-`startExport` therefore computes `clean = warnings.length === 0 && truncated === 0`. **Do not fold `interrupted` back into that** — treating a response the user deliberately stopped as a warning tells people a perfectly good export went wrong, which is the bug this replaced. Wording stays observational (*"N messages flagged truncated"*) since the meaning is unconfirmed. The exported document is **emoji-free**; emojis appear only in the transient status box / console. Tuned for RAG/Obsidian ingestion.
+`startExport` therefore computes `clean = warnings.length === 0 && truncated === 0`. **Do not fold `interrupted` back into that** — treating a response the user deliberately stopped as a warning tells people a perfectly good export went wrong. Wording stays observational (*"N messages flagged truncated"*) since the meaning is unconfirmed. The exported document is **emoji-free**; emojis appear only in the transient status box / console. Tuned for RAG/Obsidian ingestion.
 
 4. **Title + download** — `getConversationTitle()` uses `conversationData.name` (falls back to `'claude_conversation'`, including when sanitising leaves an empty string), then `downloadMarkdown()` writes the `.md` file.
 
@@ -59,12 +57,9 @@ The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bot
     index,                       // fallback ordering
     sender: 'human' | 'assistant',
     created_at,                  // ISO timestamp
-    truncated,                   // bool. VERIFIED to exist (probed uncoerced 2026-07-27; the
-                                 // key came back present as `false` on every message, and an
-                                 // absent field would have been dropped from the JSON). Never
-                                 // observed `true`, so its trigger and meaning are UNKNOWN —
-                                 // the name suggests content truncation but nothing confirms
-                                 // it. Flagged inline + ⚠️ on precaution, worded as an
+    truncated,                   // bool. VERIFIED present on every message, always `false`.
+                                 // Never observed `true`, so its trigger and meaning are
+                                 // UNKNOWN. Flagged inline + ⚠️ on precaution, worded as an
                                  // observation, never as a claim that content is missing.
     stop_reason,                 // assistant only. 'user_canceled' = interrupted — VERIFIED
                                  // against a real stopped response. 'end_turn'/'stop_sequence'
@@ -116,7 +111,7 @@ Facts that are easy to get wrong:
 
 ## Maintenance reality
 
-This is an **internal, undocumented Anthropic endpoint** — no public docs, no stability guarantee. It is, however, a data contract that changes far less often than the DOM did (the old copy-button era was almost entirely "fix for Claude's UI changes" commits). If the export breaks, check whether the response shape above changed — that's the single point of coupling now. The script contains **zero CSS selectors** (the title comes from `conversationData.name`; `orgId` from a cookie; `conversationId` from the URL), so Claude's markup and its localisation can't break it. Adding support for a new tool type is a one-line entry in `renderToolUse`.
+This is an **internal, undocumented Anthropic endpoint** — no public docs, no stability guarantee — and the response shape above is the single point of coupling. If the export breaks, check whether it changed. Adding support for a new tool type is a one-line entry in `renderToolUse`.
 
 ## Known scope limits (by design, per README)
 
@@ -124,11 +119,37 @@ Exports every message's answer text plus its **content-bearing special elements*
 
 Attachments: `describeAttachments()` renders each attachment above the message text, by what the API offers — `m.files` images → embed (`preview_url`); `m.files` documents → link (`document_asset.url`, `page_count`); `m.files` blobs (audio, no URL) → named; `m.attachments` text extractions (.md/.docx/…) → their `extracted_content` inlined as a **blockquote** (so the attachment's own headings stay quoted, out of the document outline). Each carries a word label — **`Attachment: <name> · <meta>`** (no emoji), consistent with `Artifact:`/`File:`/`Widget:`. Runs for **every** message, so an attachment-only turn is never dropped. Text content is inlined (self-contained/RAG-complete); the raw *binary* bytes are not — a portable ZIP bundling the originals is deferred work.
 
+## Funding surfaces
+
+`.github/FUNDING.yml` turns on GitHub's Sponsor button. Everything else is copy in `README.md`
+and `docs/index.html` — documentation, not code.
+
+**Adding or removing a sponsor logo: use the `add-sponsor` skill** (`.claude/skills/`). These
+invariants apply to any funding edit:
+
+- **The install page's funding markup sits outside the `<script>` block.** `hash(core)` covers
+  `claude-chat-exporter.js` alone, so editing this markup changes no hash and fires no "update
+  available" notice. Reaching the `SHIM` string or the builder changes that.
+- **No tier prices anywhere in the repo.** The Sponsors profile is the single source of truth,
+  and a published tier's price cannot be edited on GitHub. Only tier *names* (Team, Company)
+  appear here, because names survive a repricing.
+- **Sponsor logos are committed and served same-origin — never hot-linked.** The install page
+  makes exactly two external requests (`raw.githubusercontent.com`, `api.github.com`); a logo
+  pulled from a sponsor's domain would let a third party log every visitor's IP and make the
+  page's "no servers, no tracking" claim false.
+- **Every sponsor link carries `rel="sponsored noopener"`** — Google treats an unqualified paid
+  link as a link scheme. Separate concern from hot-linking: an `<a href>` fires no request
+  until clicked, an `<img src>` fires on page load.
+- **Individual sponsors are never listed by hand.** GitHub lists them automatically, and that
+  listing holds only while **Hide past sponsors** stays off in the Sponsors dashboard — which
+  the README's Support section relies on. The sponsor badge is automatic and universal, so it
+  is stated once in the profile introduction and never inside a tier.
+- **Funding copy sells maintenance only.** Never a response time, never a promised feature,
+  and never an absence ("nothing to claim"). The exported `.md` carries no ask at all.
+
 ## Keeping this file accurate
 
-This file has drifted from the code before, and each time the cost was a wrong decision made
-later from a confident-sounding but stale description. When you change something on the left,
-revisit what's on the right **in the same PR**:
+When you change something on the left, revisit what's on the right **in the same PR**:
 
 | If you change… | Revisit |
 |---|---|
@@ -136,18 +157,39 @@ revisit what's on the right **in the same PR**:
 | `renderToolUse`, or add a tool | "Known scope limits"; the `tool_use` shapes in the API contract |
 | a field read from the API | the response contract — and mark it **verified** vs **assumed** |
 | anything in `docs/index.html` | the install-page section; re-verify the shim in a real browser (CSP can't be tested in CI) |
-| `claude-chat-exporter.js` at all | nothing to edit, but know that the hash changes → every installed bookmarklet shows "update available". There is no quiet script change. |
+| funding copy, tiers, or a sponsor logo | the funding invariants above, and the `add-sponsor` skill |
+| `claude-chat-exporter.js` at all | nothing to edit, but the hash changes → every installed bookmarklet shows "update available". There is no quiet script change. |
 
-**Write what was observed, not what sounds right.** Two claims in this file turned out to be
-invented: `truncated` was described as "rare source-data content truncation" when only its
-existence had ever been checked, and the copy-button era was described as re-serialising HTML
-when it never did. If a field's behaviour hasn't been seen, say so — an honest "unverified" is
-more useful to the next reader than a plausible guess.
+### Rules for editing this file
 
-**Describe the evidence; don't cite an issue number.** Saying a failure was *reported* is what
-gives a constraint its weight, but a bare issue reference is the wrong way to say it: GitHub
-resolves those in rendered markdown against **whichever repo the reader is viewing**, so in any
-of this project's many forks they point at unrelated issues or at nothing. Write what happened
-instead — it survives forking, reads correctly offline, and carries more than a number ever
-did. Issue references belong in commit messages and pull request descriptions, where the
-cross-reference GitHub creates from them is deliberate rather than accidental.
+- **Stay under 200 lines.** It loads into context every session; past that, adherence drops
+  and rules get ignored. For each line ask: *would removing this cause a mistake?* If not, cut
+  it. Run `/doctor` for a trim proposal.
+- **Multi-step procedures belong in `.claude/skills/`, not here** — they load on demand instead
+  of every session. `add-sponsor` is the existing example.
+- **State rules, not history.** "Mark API fields verified vs assumed" does the same work as an
+  account of when that went wrong, in a fifth of the space. Reasoning belongs in the pull
+  request that made the change, where it is dated and needs no upkeep.
+- **Reserve emphasis for the few rules that are actually violated.** Emphasise everything and
+  nothing stands out.
+- **Cut anything derivable from the code.** Keep gotchas, invariants and the reasons behind
+  non-obvious choices; drop descriptions of what the code plainly does.
+
+### This file is public
+
+It ships in an open-source repo and is read by users, forks and prospective sponsors. Keep out:
+
+- **Metrics that drift** — traffic, stars, prices, timings. They go stale unnoticed, which is
+  worse than never stating them. Point at the source of truth instead.
+- **Evidence that only undercuts the project.** Keep the rule; leave out the figures that
+  argue against the project in its own docs.
+- **Deliberation, positioning and commercial reasoning** — none of it helps anyone maintain
+  this, and some of it reads badly to the person being asked to pay.
+
+### Two standing constraints
+
+- **Write what was observed, not what sounds right.** If a field's behaviour has not been seen,
+  say so — an honest "unverified" is more useful to the next reader than a plausible guess.
+- **Describe the evidence; don't cite an issue number.** GitHub resolves issue references
+  against whichever repo the reader is viewing, so in this project's many forks they point at
+  unrelated issues or nothing. Issue numbers belong in commit messages and PR descriptions.

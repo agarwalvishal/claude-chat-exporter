@@ -10,6 +10,11 @@ Everything comes through — tables, math and code at full fidelity, plus artifa
   </a>
 </p>
 
+<p align="center"><sub>
+Claude's internal API changes without notice, and someone has to keep up.<br>
+<a href="https://github.com/sponsors/agarwalvishal">Sponsoring this project</a> is what keeps it maintained. <a href="#support-this-project">More →</a>
+</sub></p>
+
 ## ⚡ One-Click Export (Bookmarklet)
 
 The easiest way — no console, no copy-paste, works for non-developers too:
@@ -289,6 +294,55 @@ The bookmarklet additionally fetches its own script and an update check from Git
 - **Special elements** - Artifacts (their final version), created files, and charts/diagrams/widgets are exported as fenced code blocks. Not exported: other tool calls (web search, bash, file view/edit), display widgets (maps, recipes, image/place search — their result URLs are ephemeral), and Claude's internal thinking blocks (excluded by design — exploratory reasoning and discarded hypotheses pollute RAG retrieval and the document outline)
 - **Attachments** - Every attachment is represented, above the text: **images** embedded, **documents** (PDF) linked (`document · N pages`), **blobs** (audio, etc.) named, and **text attachments** (.md/.docx/.txt/.html) inlined as a blockquote of their extracted text — so exports stay self-contained and RAG-complete. Not exported: the raw *binary* bytes (image/PDF/audio), and file links are auth-gated claude.ai URLs that load only while signed in to the same account. A portable ZIP that bundles the binary originals is a possible future addition
 
+## Support this project
+
+Thank you for using it — genuinely. This started as a script for my own Claude
+conversations, and it has been lovely watching other people find it useful.
+
+Here is the honest picture of the upkeep. The exporter reads Claude's internal API, which is
+undocumented and unversioned. When it changes, exports break for everyone at once — and
+somebody has to notice, work out what moved, and ship a fix. That has happened several times
+already, and it is most of what maintaining this actually is. Sponsoring is what keeps it
+working, release after release.
+
+The code is MIT and stays that way — every feature stays free, for everyone, permanently.
+
+If this has earned a place in how you work — and exporting tends to become a habit once the
+first conversation lands in your notes — a small monthly sponsorship is what makes the upkeep
+predictable. **If a recurring payment is not for you, a one-off is just as welcome.**
+
+<p align="center">
+  <a href="https://github.com/sponsors/agarwalvishal">
+    <img src="https://img.shields.io/badge/♥%20Sponsor-this%20project-d97757?style=for-the-badge" alt="Sponsor this project" />
+  </a>
+</p>
+
+Sponsors at the **Team** tier and above have their logo at the top of this page, linked to
+their site, for as long as the sponsorship runs. Placement follows the amount, so a custom
+sponsorship counts the same as the matching tier. Individual
+sponsors are listed automatically by GitHub on my profile. Sponsorship covers placement and
+the upkeep it funds — the project's direction stays open to everyone, and ideas and requests
+live in the [issues](../../issues).
+
+### Using this at work?
+
+If Claude conversations end up in your team's knowledge base, documentation, or a RAG
+pipeline, this tool is quietly part of your stack — and keeping it working is worth a line in
+someone's tooling budget.
+
+The **Team** tier puts your logo at the top of this README — the page most people land on,
+usually arriving from a search for exactly this kind of tool. The
+**Company** tier places it first and adds it to the
+[install page](https://agarwalvishal.github.io/claude-chat-exporter/) — the page every user
+passes through to install, and returns to whenever a new version ships.
+
+It is usually an easy ask — forward this to whoever owns that budget.
+
+### Other ways to help
+
+A ⭐ helps nearly as much, as does telling one other person this exists. Most people find
+this tool through a search engine, and every star makes that search work a little better.
+
 ## Contributing
 
 Contributions to improve the script or add new features are welcome! Please feel free to submit a pull request or open an issue to discuss potential changes.
@@ -311,4 +365,4 @@ This script is not officially associated with Anthropic or Claude AI. It is a co
 
 **Perfect Exports. Every Element. Every Time.**
 
-_Made for the Claude community - if this helps you, give it a ⭐!_
+_Made for the Claude community — if this helps you, [give it a ⭐](https://github.com/agarwalvishal/claude-chat-exporter) or [sponsor it](https://github.com/sponsors/agarwalvishal)._
