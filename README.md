@@ -187,7 +187,11 @@ _Works in any modern browser while you're logged in to claude.ai._
 
 ### Export Status Indicators
 
-The script shows a small status box while it runs:
+The script shows a small status box in the top-right corner while it runs. It clears itself a
+few seconds after finishing — but only while the page has focus, so it waits rather than
+draining away behind a "where do you want to save this?" dialog. Hover to hold it open, or
+click it to dismiss it straight away. A successful export also shows a small link to this
+project's sponsor page; nothing is logged, counted or sent either way.
 
 - `Fetching conversation…` - Reading the conversation from Claude's API
 - `✅ Exported N messages: filename.md` - Success!
