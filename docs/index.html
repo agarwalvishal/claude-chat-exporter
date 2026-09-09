@@ -188,6 +188,12 @@
   // replaced with the hash of the core script this bookmarklet was built from.
   // At run time it re-fetches the latest core, hashes it, and if they differ shows
   // a one-click "update available" notice. It does not touch the core script.
+  //
+  // It owns top:10px in the corner it shares with the exporter's status box. It
+  // does not move that box: it publishes `window.__claudeChatExporterNotice` for
+  // as long as it is on screen, and the exporter positions itself from that. Keep
+  // it that way — layout logic belongs in the core script, which is lintable and
+  // testable, not in this string. Dark ink as the box uses it: white here fails AA.
   var SHIM = [
     '(function(){',
       'try{',
@@ -201,10 +207,24 @@
           'if(h(t)!==B){',
             'var d=document.createElement("div");',
             'd.textContent="\\u26A0\\uFE0F Claude Chat Exporter: update available \\u2014 click to re-grab";',
-            'd.style.cssText="position:fixed;top:52px;right:10px;z-index:10001;background:#d97757;color:#fff;padding:8px 12px;border-radius:6px;font:12px/1.4 monospace;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.3);max-width:300px";',
-            'd.onclick=function(){window.open(P,"_blank");d.remove();};',
+            'd.style.cssText="position:fixed;top:10px;right:10px;z-index:10001;background:#d97757;color:#1a1a1a;padding:8px 12px;border-radius:6px;font:12px/1.4 monospace;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.3);max-width:300px";',
+            // One notice at a time, mirroring the exporter's one-box rule: a
+            // second export starts a second shim, and two notices would stack at
+            // the same coordinates looking like one.
+            'var prev=window.__claudeChatExporterNotice;if(prev)prev.remove();',
+            // Appended before anything else runs. Everything here is inside one
+            // try/catch, and this notice is the only thing that tells a user to
+            // re-grab — a throw after this point costs a behaviour, a throw
+            // before it would hide the fix for itself.
             'document.body.appendChild(d);',
-            'setTimeout(function(){d.remove();},15000);',
+            // The entire contract with the exporter: "a notice is on screen".
+            // The exporter positions its own box from this; nothing here touches
+            // that box. The identity guard stops a superseded notice's timer from
+            // clearing the marker belonging to the one now showing.
+            'window.__claudeChatExporterNotice=d;',
+            'var c=function(){d.remove();if(window.__claudeChatExporterNotice===d)delete window.__claudeChatExporterNotice;};',
+            'd.onclick=function(){window.open(P,"_blank");c();};',
+            'setTimeout(c,15000);',
           '}',
         // Quiet by default — a failed update check is not the user's problem.
         // console.debug is hidden unless the console level is "Verbose", so a

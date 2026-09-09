@@ -425,21 +425,89 @@ function setupClaudeExporter() {
     return { markdown, interrupted, truncated };
   }
 
-  // Status indicator
+  // Status indicator. Dark ink because white fails WCAG AA on all four of this
+  // box's backgrounds and #1a1a1a passes on all four — don't "restore" it.
   const statusDiv = document.createElement('div');
+  statusDiv.setAttribute('role', 'status');
   statusDiv.style.cssText = `
     position: fixed; top: 10px; right: 10px; z-index: 10000;
-    background: #2196F3; color: white; padding: 10px 15px;
+    background: #2196F3; color: #1a1a1a; padding: 10px 15px;
     border-radius: 5px; font-family: monospace; font-size: 12px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.3); max-width: 300px;
+    overflow-wrap: anywhere; cursor: pointer; transition: top .15s ease;
   `;
-  document.body.appendChild(statusDiv);
+
+  // Auto-dismiss that only counts down while the page actually has focus, so the
+  // box cannot drain away behind a save dialog or the download bubble. The check
+  // is on the live focus state rather than on having seen a blur event: the
+  // download starts before the result is rendered, so the blur is already spent
+  // by the time we would arm.
+  let dismissMs = 6000;   // success; the error path lengthens it
+  let dismissTimer = null;
+  let hovered = false;
+  let settled = false;    // nothing auto-dismisses until there is a result to read
+
+  function armDismiss() {
+    // The `dismissTimer` guard is load-bearing: without it the tick below would
+    // restart the countdown on every pass and the box would never dismiss.
+    if (dismissTimer || !settled || hovered || !document.hasFocus()) return;
+    dismissTimer = setTimeout(cleanup, dismissMs);
+  }
+
+  function pauseDismiss() {
+    clearTimeout(dismissTimer);
+    dismissTimer = null;
+  }
+
+  // Housekeeping tick: gates dismissal on real focus, since focus events do not
+  // fire reliably around native dialogs, and derives this box's position from
+  // whether the update notice is on screen. Deriving it, rather than letting the
+  // notice push the box and restore it later, is what stops a superseded notice
+  // leaving the box in the wrong place.
+  // The interval is set by the reflow, not by the focus check: the notice appears
+  // asynchronously and this is what spots it, so anything slower shows a visible
+  // overlap before the box steps aside. Both checks are reads, and the write only
+  // happens when the position actually changes, so a tick costs nothing.
+  const housekeeping = setInterval(() => {
+    if (document.hasFocus()) armDismiss(); else pauseDismiss();
+    const top = window.__claudeChatExporterNotice ? '70px' : '10px';
+    if (statusDiv.style.top !== top) statusDiv.style.top = top;
+  }, 100);
 
   function cleanup() {
+    clearInterval(housekeeping);
+    clearTimeout(dismissTimer);
+    window.removeEventListener('focus', armDismiss);
+    window.removeEventListener('blur', pauseDismiss);
     if (document.body.contains(statusDiv)) {
       document.body.removeChild(statusDiv);
     }
+    if (window.__claudeChatExporterDispose === cleanup) {
+      delete window.__claudeChatExporterDispose;
+    }
   }
+
+  statusDiv.addEventListener('mouseenter', () => { hovered = true; pauseDismiss(); });
+  statusDiv.addEventListener('mouseleave', () => { hovered = false; armDismiss(); });
+  statusDiv.addEventListener('click', cleanup);
+  window.addEventListener('focus', armDismiss);
+  window.addEventListener('blur', pauseDismiss);
+
+  // Only ever one status box: a new run tears down the previous run's box, timers
+  // and window listeners before starting its own. A global marker rather than a
+  // lookup, so the script still queries nothing — and it releases the old run's
+  // listeners, which finding the element alone would not.
+  if (typeof window.__claudeChatExporterDispose === 'function') {
+    try { window.__claudeChatExporterDispose(); } catch (_) { /* previous run already gone */ }
+  }
+  window.__claudeChatExporterDispose = cleanup;
+  // The whole contract with the install page's shim, and it is one-directional:
+  // the shim announces a notice, this file decides where the box goes. Renaming
+  // the marker ends the arrangement silently. Read before the first paint so a
+  // box created under an existing notice appears in place rather than sliding.
+  if (window.__claudeChatExporterNotice) statusDiv.style.top = '70px';
+
+  document.body.appendChild(statusDiv);
 
   async function startExport() {
     try {
@@ -476,14 +544,39 @@ function setupClaudeExporter() {
       const clean = warnings.length === 0 && truncated === 0;
       statusDiv.textContent = `${clean ? '✅' : '⚠️'} Exported ${messages.length} messages${notes.length ? ` (${notes.join('; ')})` : ''}: ${filename}`;
       statusDiv.style.background = clean ? '#4CAF50' : '#ff9800';
+      // Appended as a node, never innerHTML: the line above interpolates a
+      // filename derived from the conversation title, and this file has no HTML
+      // sinks. Success only — an error is not the moment to ask for anything.
+      // Its own line so a wrapping filename cannot strand it mid-sentence; the
+      // rule and the weight, not a colour, are what mark it as an action (red
+      // would be near-invisible on green and orange, and is this box's error
+      // colour). Underline waits for hover so the resting state stays quiet.
+      const support = document.createElement('a');
+      support.href = 'https://github.com/sponsors/agarwalvishal';
+      support.target = '_blank';
+      support.rel = 'noopener';
+      support.textContent = '♥ Support this project';
+      support.style.cssText = 'display: block; margin-top: 6px; padding-top: 6px; ' +
+        'border-top: 1px solid rgba(0,0,0,0.3); color: #1a1a1a; font-weight: 600; ' +
+        'text-decoration: none; text-underline-offset: 2px;';
+      // mouseenter/mouseleave do not fire when the pointer moves between an
+      // element and its own child, so hovering the link leaves the box's
+      // hover-pause untouched.
+      support.addEventListener('mouseenter', () => { support.style.textDecoration = 'underline'; });
+      support.addEventListener('mouseleave', () => { support.style.textDecoration = 'none'; });
+      statusDiv.appendChild(support);
       console.log(`🎉 Export complete — ${messages.length} messages → ${filename}`);
 
     } catch (error) {
+      // Set before the text: a live region announces on mutation, not on creation.
+      statusDiv.setAttribute('role', 'alert');
       statusDiv.textContent = `Error: ${error.message}`;
       statusDiv.style.background = '#f44336';
+      dismissMs = 8000;
       console.error('Export failed:', error);
     } finally {
-      setTimeout(cleanup, 4000);
+      settled = true;
+      armDismiss();
     }
   }
 
