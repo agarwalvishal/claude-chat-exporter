@@ -1,4 +1,6 @@
 // Claude Chat Exporter — exports a claude.ai conversation to a markdown file.
+// Also runs on ChatGPT (chatgpt.com) and Mistral Vibe (chat.mistral.ai), each read
+// from that app's own internal API the same way — see loadChatGPT / loadMistral.
 //
 // Approach: read the conversation straight from claude.ai's own internal API
 // (the same endpoint the app uses), which returns every message's *source
@@ -21,6 +23,15 @@ function setupClaudeExporter() {
   // tool_use names that were skipped (not rendered) — logged once, to help spot a
   // new content-bearing tool the registry should learn about.
   const skippedTools = new Set();
+
+  // Which app this page belongs to. Anything that isn't ChatGPT or Mistral is
+  // treated as Claude, the original target, so a Claude run behaves exactly as
+  // it always has.
+  const host = window.location.hostname;
+  const provider = (host === 'chatgpt.com' || host === 'chat.openai.com') ? 'chatgpt'
+    : host === 'chat.mistral.ai' ? 'mistral'
+    : 'claude';
+  const SPEAKER = { claude: 'Claude', chatgpt: 'ChatGPT', mistral: 'Vibe' }[provider];
 
   function downloadMarkdown(content, filename) {
     const blob = new Blob([content], { type: 'text/markdown' });
@@ -170,7 +181,7 @@ function setupClaudeExporter() {
     }
 
     if (unexpectedSenders.size) {
-      warn(`Unexpected sender value(s): ${[...unexpectedSenders].join(', ')} — labelled as "Claude".`);
+      warn(`Unexpected sender value(s): ${[...unexpectedSenders].join(', ')} — labelled as "${SPEAKER}".`);
     }
     if (skippedTools.size) {
       // Debug level: hidden from normal users (Chrome shows it only in "Verbose"),
@@ -347,6 +358,200 @@ function setupClaudeExporter() {
     return '';
   }
 
+  // ── ChatGPT and Mistral ────────────────────────────────────────────────────
+  // Same principle as Claude: one app's own internal API, nothing read from the
+  // page. Both loaders return messages in the shape getOrderedMessages produces
+  // and set conversationData.{name, model} for buildMarkdown. Their response
+  // shapes are ASSUMED from maintained open-source exporters, not observed here
+  // — see CLAUDE.md.
+
+  // Same-origin GET with the error wording the Claude fetch uses.
+  async function getJson(url, headers, app) {
+    let response;
+    try {
+      response = await fetch(url, { credentials: 'include', headers });
+    } catch (error) {
+      throw new Error(`Couldn't reach the ${app} API: ${error.message}`);
+    }
+    if (!response.ok) {
+      const hint = (response.status === 401 || response.status === 403)
+        ? ' — your session may have expired; reload and sign in'
+        : '';
+      throw new Error(`${app} API request failed (HTTP ${response.status})${hint}.`);
+    }
+    try {
+      return await response.json();
+    } catch (error) {
+      throw new Error(`Couldn't parse the ${app} API response: ${error.message}`);
+    }
+  }
+
+  // ChatGPT: a bearer token from the session endpoint, then one conversation
+  // fetch. The response is a node `mapping` plus `current_node`, the tip of the
+  // branch on screen — the same leaf-to-root walk as Claude.
+  async function loadChatGPT() {
+    const conversationId = window.location.pathname.match(/\/c\/([0-9a-f-]{36})/i)?.[1];
+    if (!conversationId) {
+      throw new Error('Open a specific ChatGPT conversation first (the current page has no conversation id).');
+    }
+    const session = await getJson('/api/auth/session', {}, 'ChatGPT');
+    if (!session?.accessToken) {
+      throw new Error("Couldn't read your ChatGPT session (no access token) — are you signed in?");
+    }
+    const headers = { Authorization: `Bearer ${session.accessToken}` };
+
+    // Team/Enterprise: the app names the active workspace in the `_account`
+    // cookie, and the API wants that workspace's account id as a header. Without
+    // it a workspace conversation 404s, so a failed lookup is logged, not fatal —
+    // a personal conversation still exports.
+    const workspace = document.cookie.match(/(?:^|;\s*)_account=([^;]+)/)?.[1];
+    if (workspace) {
+      try {
+        const check = await getJson('/backend-api/accounts/check/v4-2023-04-27', headers, 'ChatGPT');
+        const accountId = check?.accounts?.[decodeURIComponent(workspace)]?.account?.account_id;
+        if (accountId) headers['chatgpt-account-id'] = accountId;
+      } catch (error) {
+        console.warn(`ChatGPT workspace lookup failed (${error.message}) — exporting without a workspace id.`);
+      }
+    }
+
+    const data = await getJson(`/backend-api/conversation/${conversationId}`, headers, 'ChatGPT');
+    if (!data || typeof data.mapping !== 'object' || !data.mapping) {
+      throw new Error('Unexpected API response — mapping is missing (the endpoint may have changed).');
+    }
+    conversationData = { name: data.title, model: data.default_model_slug };
+    return chatgptMessages(data);
+  }
+
+  function chatgptMessages(data) {
+    const mapping = data.mapping;
+    let path = [];
+    const seen = new Set();
+    for (let id = data.current_node; id && mapping[id] && !seen.has(id); id = mapping[id].parent) {
+      seen.add(id);
+      path.push(mapping[id]);
+    }
+    if (path.length) {
+      path.reverse();
+    } else {
+      warn('Could not resolve the current branch (current_node missing/unresolved) — falling back to creation order, which may be inaccurate for branched conversations.');
+      path = Object.values(mapping).sort((a, b) => (a.message?.create_time ?? 0) - (b.message?.create_time ?? 0));
+    }
+
+    const messages = [];
+    const skipped = new Set();
+    for (const node of path) {
+      const m = node.message;
+      const role = m?.author?.role;
+      // system and tool messages, hidden context, and assistant turns addressed
+      // to a tool (code runs, browsing, canvas) never show as conversation text.
+      if (role !== 'user' && role !== 'assistant') continue;
+      if (m.metadata?.is_visually_hidden_from_conversation) continue;
+      if (m.recipient && m.recipient !== 'all') { skipped.add(m.recipient); continue; }
+      const type = m.content?.content_type;
+      // `thoughts` and `reasoning_recap` are the thinking Claude exports skip too.
+      if (type !== 'text' && type !== 'multimodal_text') { if (type) skipped.add(type); continue; }
+
+      const text = (m.content.parts || []).filter(p => typeof p === 'string').join('\n')
+        // Citation markers (U+E200 cite … U+E201) and highlight marks (U+E203/4):
+        // private-use characters that render as junk. Web search is skipped on
+        // Claude too, so they are dropped rather than resolved into links.
+        .replace(/ ?[^]*/g, '')
+        .replace(/[]/g, '')
+        .trim();
+      // Uploads are named only: their bytes sit behind authenticated file ids.
+      const files = (m.metadata?.attachments || []).filter(a => a?.name)
+        .map(a => `**Attachment: ${[a.name, a.mime_type, formatBytes(a.size)].filter(Boolean).join(' · ')}**`);
+      const body = [...files, text].filter(Boolean).join('\n\n');
+      if (!body) continue;
+
+      const sender = role === 'user' ? 'human' : 'assistant';
+      // Mapped onto Claude's value so incompleteNote reads one vocabulary.
+      const stop_reason = m.metadata?.finish_details?.type === 'interrupted' ? 'user_canceled' : undefined;
+      const prev = messages[messages.length - 1];
+      if (sender === 'assistant' && prev?.sender === 'assistant') {
+        // One on-screen reply can span several nodes (text around a tool call).
+        prev.text += `\n\n${body}`;
+        prev.stop_reason = stop_reason;
+        continue;
+      }
+      messages.push({
+        sender,
+        text: body,
+        created_at: m.create_time ? new Date(m.create_time * 1000).toISOString() : null,
+        truncated: false,
+        stop_reason
+      });
+    }
+
+    if (skipped.size) console.debug('[claude-chat-exporter] ChatGPT content skipped (not rendered):', [...skipped].join(', '));
+    return messages;
+  }
+
+  // Mistral Vibe (formerly Le Chat): tRPC GETs authenticated by the session
+  // cookie. `chat.byId` carries the title; `message.all` pages the messages via
+  // `nextCursor`. Each message's `content` is its source markdown.
+  async function loadMistral() {
+    const chatId = window.location.pathname.match(/\/chat\/([0-9a-f-]{36})/i)?.[1];
+    if (!chatId) {
+      throw new Error('Open a specific Vibe conversation first (the current page has no conversation id).');
+    }
+    const trpc = async (procedure, input) => {
+      const query = encodeURIComponent(JSON.stringify({ 0: { json: input } }));
+      const res = await getJson(`/api/trpc/${procedure}?batch=1&input=${query}`, {}, 'Mistral');
+      return res?.[0]?.result?.data?.json;
+    };
+
+    const chat = await trpc('chat.byId', { id: chatId });
+    const items = [];
+    const cursors = new Set();
+    let cursor = null;
+    do {
+      const page = await trpc('message.all', cursor ? { chatId, cursor } : { chatId });
+      const list = Array.isArray(page) ? page : page?.items;
+      if (!Array.isArray(list)) {
+        throw new Error('Unexpected API response — the message list is missing (the endpoint may have changed).');
+      }
+      items.push(...list);
+      cursors.add(cursor);
+      cursor = Array.isArray(page) ? null : page.nextCursor;
+    } while (cursor && !cursors.has(cursor)); // a repeated cursor would loop forever
+
+    // No current-branch pointer is known, so time order it is. Edited or
+    // regenerated turns may then appear more than once — flag rather than guess.
+    items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const turns = new Set();
+    let repeated = false;
+    for (const m of items) {
+      if (typeof m.turn !== 'number') continue;
+      const key = `${m.role}:${m.turn}`;
+      if (turns.has(key)) repeated = true;
+      turns.add(key);
+    }
+    if (repeated) {
+      warn('Some turns appear in several versions (edited or regenerated) — all were exported in time order, since the exporter cannot tell which one is on screen.');
+    }
+
+    const messages = [];
+    for (const m of items) {
+      if (m.role !== 'user' && m.role !== 'assistant') continue;
+      const text = (typeof m.content === 'string' && m.content.trim())
+        || (m.contentChunks || []).filter(c => c?.type === 'text').map(c => c.text).join('').trim();
+      if (!text) continue;
+      messages.push({
+        sender: m.role === 'user' ? 'human' : 'assistant',
+        text,
+        created_at: m.createdAt,
+        truncated: false,
+        stop_reason: undefined
+      });
+    }
+
+    const model = [...items].reverse().find(m => typeof m.model === 'string')?.model;
+    conversationData = { name: chat?.userTitle || chat?.generatedTitle || chat?.title, model };
+    return messages;
+  }
+
   function sanitizeTitle(title) {
     return title
       .replace(/[<>:"/\\|?*]/g, '_')
@@ -361,9 +566,9 @@ function setupClaudeExporter() {
     const title = conversationData?.name?.trim();
     if (title && title !== 'New conversation') {
       // A punctuation-only title (e.g. "***") sanitizes to '' — don't emit ".md".
-      return sanitizeTitle(title) || 'claude_conversation';
+      return sanitizeTitle(title) || `${provider}_conversation`;
     }
-    return 'claude_conversation';
+    return `${provider}_conversation`;
   }
 
   // YAML double-quoted scalar (escapes backslashes and quotes).
@@ -379,7 +584,7 @@ function setupClaudeExporter() {
       return '> **Truncated:** the message was truncated in the source data and may be incomplete.';
     }
     if (message.stop_reason === 'user_canceled') {
-      return '> **Interrupted:** this response was stopped before Claude finished.';
+      return `> **Interrupted:** this response was stopped before ${SPEAKER} finished.`;
     }
     return '';
   }
@@ -391,7 +596,7 @@ function setupClaudeExporter() {
   //     and turn boundaries are the top split level. (No separate title heading or
   //     `---` rules — the frontmatter and headers already delimit everything.)
   function buildMarkdown(messages) {
-    const title = conversationData?.name?.trim() || 'Claude conversation';
+    const title = conversationData?.name?.trim() || `${SPEAKER} conversation`;
     const source = window.location.origin + window.location.pathname;
 
     const frontMatter = ['---', `title: ${yamlString(title)}`, `source: ${yamlString(source)}`];
@@ -407,7 +612,7 @@ function setupClaudeExporter() {
     let truncated = 0;
 
     for (const message of messages) {
-      const who = message.sender === 'human' ? 'Human' : 'Claude';
+      const who = message.sender === 'human' ? 'Human' : SPEAKER;
       const ts = formatTimestamp(message.created_at);
       const header = ts ? `# ${who} — ${ts}` : `# ${who}`;
 
@@ -509,24 +714,31 @@ function setupClaudeExporter() {
 
   document.body.appendChild(statusDiv);
 
+  async function loadClaude() {
+    conversationData = await fetchConversationData();
+
+    // Validate the response shape — a missing chat_messages array means the
+    // internal API changed, which we surface clearly rather than as "no messages".
+    if (!conversationData || typeof conversationData !== 'object' || !Array.isArray(conversationData.chat_messages)) {
+      throw new Error('Unexpected API response — chat_messages is missing (the endpoint may have changed).');
+    }
+
+    const messages = getOrderedMessages(conversationData);
+    if (!messages.length) {
+      const hadContent = conversationData.chat_messages.some(m => Array.isArray(m.content) && m.content.length);
+      throw new Error(hadContent
+        ? 'No exportable content extracted — the message/content shape may have changed.'
+        : 'No messages found in this conversation.');
+    }
+    return messages;
+  }
+
   async function startExport() {
     try {
       statusDiv.textContent = 'Fetching conversation…';
-      conversationData = await fetchConversationData();
-
-      // Validate the response shape — a missing chat_messages array means the
-      // internal API changed, which we surface clearly rather than as "no messages".
-      if (!conversationData || typeof conversationData !== 'object' || !Array.isArray(conversationData.chat_messages)) {
-        throw new Error('Unexpected API response — chat_messages is missing (the endpoint may have changed).');
-      }
-
-      const messages = getOrderedMessages(conversationData);
-      if (!messages.length) {
-        const hadContent = conversationData.chat_messages.some(m => Array.isArray(m.content) && m.content.length);
-        throw new Error(hadContent
-          ? 'No exportable content extracted — the message/content shape may have changed.'
-          : 'No messages found in this conversation.');
-      }
+      const load = { claude: loadClaude, chatgpt: loadChatGPT, mistral: loadMistral }[provider];
+      const messages = await load();
+      if (!messages.length) throw new Error('No messages found in this conversation.');
 
       const { markdown, interrupted, truncated } = buildMarkdown(messages);
       const filename = `${getConversationTitle()}.md`;

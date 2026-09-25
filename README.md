@@ -83,6 +83,17 @@ Prefer running it yourself, or want to tweak the script? Run it straight from th
 4. Press Enter to run the script.
 5. The script shows a small status indicator and automatically downloads a file named `{conversation-title}.md` (`conversation-title` being the Claude conversation title from the API).
 
+## ChatGPT & Mistral Vibe (experimental)
+
+The same script also exports conversations from **ChatGPT** ([chatgpt.com](https://chatgpt.com)) and **Mistral Vibe**, formerly Le Chat ([chat.mistral.ai](https://chat.mistral.ai)). Open a conversation there and run it from the console exactly as above. It detects the site and, as on Claude, reads that app's own internal API over your existing session — never the page.
+
+The output is the same frontmatter-plus-`#`-per-turn document, with turns headed `# ChatGPT — …` or `# Vibe — …`. What differs:
+
+- **ChatGPT** - Follows the branch on screen, like Claude. Exports the answer text; skips reasoning ("thoughts"), tool runs (code, browsing), canvas documents and web-search citation markers. Uploaded files are listed by name. Team/Enterprise workspaces are supported.
+- **Mistral Vibe** - Exports the answer text in time order. Vibe's API exposes no "current branch", so if a turn was edited or regenerated, every version is exported and the status box shows a warning. Uploaded files are not listed.
+
+**Experimental:** both sites' APIs are undocumented, and this support is built from how other open-source exporters read them rather than tested against a live account. If something comes out wrong, the console says what — please open an issue. The one-click bookmarklet has only been verified on claude.ai.
+
 ## Complete Element Support
 
 Because this reads Claude's source markdown directly, it automatically handles:
@@ -293,7 +304,7 @@ The bookmarklet additionally fetches its own script and an update check from Git
 ## Limitations
 
 - **Requires JavaScript** - Must be enabled in browser
-- **Claude Web Only** - Works only on claude.ai web interface, while you're logged in
+- **Web Apps Only** - Works on the claude.ai web interface (and, experimentally, [ChatGPT and Mistral Vibe](#chatgpt--mistral-vibe-experimental)), while you're logged in
 - **Undocumented API** - Relies on Claude's internal API; a change to its response shape would require an update (rare, and far less brittle than CSS selectors)
 - **Special elements** - Artifacts (their final version), created files, and charts/diagrams/widgets are exported as fenced code blocks. Not exported: other tool calls (web search, bash, file view/edit), display widgets (maps, recipes, image/place search — their result URLs are ephemeral), and Claude's internal thinking blocks (excluded by design — exploratory reasoning and discarded hypotheses pollute RAG retrieval and the document outline)
 - **Attachments** - Every attachment is represented, above the text: **images** embedded, **documents** (PDF) linked (`document · N pages`), **blobs** (audio, etc.) named, and **text attachments** (.md/.docx/.txt/.html) inlined as a blockquote of their extracted text — so exports stay self-contained and RAG-complete. Not exported: the raw *binary* bytes (image/PDF/audio), and file links are auth-gated claude.ai URLs that load only while signed in to the same account. A portable ZIP that bundles the binary originals is a possible future addition

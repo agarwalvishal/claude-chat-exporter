@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-file browser-console script (`claude-chat-exporter.js`) that exports a claude.ai conversation to a markdown file. It runs by pasting the whole file into the browser devtools console while a conversation is open (a one-click bookmarklet in `docs/index.html` wraps the same script). There is **no build system, package manager, test suite, or lint config** — the whole repo is the script, `README.md`, `docs/index.html`, this file, `LICENSE`, `.github/FUNDING.yml`, and `.claude/skills/` — none of which any code reads.
+A single-file browser-console script (`claude-chat-exporter.js`) that exports a claude.ai conversation — or, from the same file, a ChatGPT or Mistral Vibe one (see *ChatGPT and Mistral Vibe* below) — to a markdown file. It runs by pasting the whole file into the browser devtools console while a conversation is open (a one-click bookmarklet in `docs/index.html` wraps the same script). There is **no build system, package manager, test suite, or lint config** — the whole repo is the script, `README.md`, `docs/index.html`, this file, `LICENSE`, `.github/FUNDING.yml`, and `.claude/skills/` — none of which any code reads.
 
 To test a change: `node --check claude-chat-exporter.js` for syntax, then paste the edited script into the console on a real claude.ai conversation and observe the on-page status indicator and downloaded `.md` file.
 
@@ -18,7 +18,7 @@ The script **reads nothing from Claude's rendered page**. It takes the conversat
 
 ## How the export works
 
-The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bottom) and is a straight pipeline — one fetch, transform, download:
+The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bottom) and is a straight pipeline — one fetch, transform, download. `provider` (from the hostname) picks the loader; the Claude one, `loadClaude`, is:
 
 1. **`fetchConversationData()`** — same-origin GET to the internal endpoint
    `/api/organizations/{orgId}/chat_conversations/{conversationId}?tree=true&rendering_mode=messages&render_all_tools=true`,
@@ -34,7 +34,7 @@ The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bot
 |---|---|---|
 | `stop_reason: 'user_canceled'` | The user stopped the response; there is no further content | ✅ green — the export is complete and faithful |
 | `truncated` | The API set a flag whose trigger we have never observed | ⚠️ orange, on precaution |
-| `warnings[]` | Something didn't reconstruct cleanly (see the four `warn()` sites) | ⚠️ orange |
+| `warnings[]` | Something didn't reconstruct cleanly (see the `warn()` sites) | ⚠️ orange |
 
 `startExport` therefore computes `clean = warnings.length === 0 && truncated === 0`. **Do not fold `interrupted` back into that** — treating a response the user deliberately stopped as a warning tells people a perfectly good export went wrong. Wording stays observational (*"N messages flagged truncated"*) since the meaning is unconfirmed. The exported document is **emoji-free**; emojis appear only in the transient status box / console. Tuned for RAG/Obsidian ingestion.
 
@@ -72,9 +72,7 @@ The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bot
 }
 ```
 
-**Content blocks** (`content[]`): we export `type === 'text'` (`block.text`) and content-bearing
-`tool_use` blocks; `thinking` / `tool_result` are skipped. A `tool_use` block has `name` +
-`input`; the three the renderer keys on:
+**Content blocks** (`content[]`): we export `type === 'text'` (`block.text`) and content-bearing `tool_use` blocks; `thinking` / `tool_result` are skipped. A `tool_use` block has `name` + `input`; the three the renderer keys on:
 - `artifacts` → `input.{ command: 'create'|'update'|'rewrite', id, title, type, language,
   content, old_str, new_str, version_uuid }`. `create`/`rewrite` carry full `content`;
   `update` is an `old_str`→`new_str` diff. `collectArtifacts` folds them by `id` into the
@@ -82,16 +80,19 @@ The whole flow lives in `setupClaudeExporter()` (one closure, invoked at the bot
 - `create_file` → `input.{ path, file_text, description }`.
 - `visualize:show_widget` → `input.{ title, widget_code }` (each is one-shot; no id).
 
-**`files[]`** (uploaded files): `{ file_kind: 'image'|'document'|'blob', file_name, uuid,
-image → preview_url, document → document_asset.url + page_count, blob → size_bytes (no URL) }`.
-**`attachments[]`** (text extractions, e.g. .md/.docx): `{ file_name, file_type, file_size,
-extracted_content }` — no URL; the text itself is inlined.
+**`files[]`** (uploaded files): `{ file_kind: 'image'|'document'|'blob', file_name, uuid, image → preview_url, document → document_asset.url + page_count, blob → size_bytes (no URL) }`.
+**`attachments[]`** (text extractions, e.g. .md/.docx): `{ file_name, file_type, file_size, extracted_content }` — no URL; the text itself is inlined.
 
-Note the convenience top-level `chat_messages[].text` field is **empty** in this rendering
-mode — always read the `content` blocks. `startExport` validates that `chat_messages` is an
-array (a clear error if the shape drifts), and non-fatal shape issues emit `warn()` (orange
-status): unresolved current branch, unexpected `sender`, un-appliable artifact update, empty
-artifact. Skipped tools are `console.debug` only.
+Note the convenience top-level `chat_messages[].text` field is **empty** in this rendering mode — always read the `content` blocks. `startExport` validates that `chat_messages` is an array (a clear error if the shape drifts), and non-fatal shape issues emit `warn()` (orange status): unresolved current branch, unexpected `sender`, un-appliable artifact update, empty artifact. Skipped tools are `console.debug` only.
+
+## ChatGPT and Mistral Vibe — ASSUMED contracts
+
+Anything that isn't `chatgpt.com`/`chat.openai.com` or `chat.mistral.ai` is treated as Claude, so the Claude path is unchanged. `loadChatGPT` / `loadMistral` return the same message shape as `getOrderedMessages` and set `conversationData.{name, model}`; everything after that is shared. **Neither contract has been observed from this repo** — both are taken from maintained open-source exporters — so mark a field **verified** only once you have seen it in a live response.
+
+- **ChatGPT** (`/c/{id}`): bearer token from `/api/auth/session` → `GET /backend-api/conversation/{id}` → `{ title, default_model_slug, current_node, mapping: { [id]: { parent, message: { author.role, recipient, create_time (unix s), content: { content_type, parts }, metadata: { is_visually_hidden_from_conversation, attachments[{ name, mime_type, size }], finish_details.type } } } } }`. Walks `current_node` → root like Claude. Exports `user`/`assistant` with `recipient === 'all'` and `content_type` `text`/`multimodal_text`; skips thinking (`thoughts`, `reasoning_recap`), tool turns, canvas and hidden context. Consecutive assistant nodes merge into one turn; `finish_details.type === 'interrupted'` maps to `stop_reason: 'user_canceled'`; citation markers (`U+E200…U+E201`) are stripped, per the no-web-search rule. Team workspaces: `_account` cookie → `/backend-api/accounts/check/v4-2023-04-27` → `chatgpt-account-id` header (a failed lookup is logged, not fatal).
+- **Mistral Vibe** (formerly Le Chat, `/chat/{id}`): cookie-authenticated tRPC GETs, `/api/trpc/<proc>?batch=1&input={"0":{"json":…}}`, result at `[0].result.data.json`. `chat.byId {id}` → `userTitle || generatedTitle || title`; `message.all {chatId, cursor?}` → `{ items, nextCursor }`, each `{ role, content (markdown), contentChunks, createdAt, turn, model, files }`. No current-branch pointer is known, so messages sort by `createdAt` and a repeated `role:turn` pair raises a `warn()` instead of guessing. `files` shape unknown → not rendered.
+
+Each adds one `warn()` site (ChatGPT branch fallback, Mistral repeated turn). `docs/index.html` still says "Claude" only, and the bookmarklet has not been tried against these sites' CSP (if the shim's update check is blocked it fails silently; the export itself is unaffected).
 
 ## The install page & bookmarklet (`docs/index.html`)
 
