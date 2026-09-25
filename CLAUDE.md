@@ -89,8 +89,9 @@ extracted_content }` — no URL; the text itself is inlined.
 
 Note the convenience top-level `chat_messages[].text` field is **empty** in this rendering
 mode — always read the `content` blocks. `startExport` validates that `chat_messages` is an
-array (a clear error if the shape drifts), and non-fatal shape issues (unexpected `sender`,
-un-appliable artifact update, unknown skipped tools) emit console warnings.
+array (a clear error if the shape drifts), and non-fatal shape issues emit `warn()` (orange
+status): unresolved current branch, unexpected `sender`, un-appliable artifact update, empty
+artifact. Skipped tools are `console.debug` only.
 
 ## The install page & bookmarklet (`docs/index.html`)
 
