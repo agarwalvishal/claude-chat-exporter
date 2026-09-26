@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude Chat Exporter — one-click bookmarklet</title>
-<meta name="description" content="Export any Claude.ai conversation to clean, faithful Markdown with one click — artifacts, code, tables, math and attachments included. Runs in your browser, no servers, open source. Obsidian & RAG ready.">
+<meta name="description" content="Export any Claude, ChatGPT or Mistral Vibe conversation to clean, faithful Markdown with one click — artifacts, code, tables, math and attachments included. Runs in your browser, no servers, open source. Obsidian & RAG ready.">
 <style>
   :root {
     --accent: #d97757;
@@ -130,10 +130,10 @@
     </div>
 
     <header class="hero">
-      <h1>Export any Claude chat to perfect Markdown</h1>
-      <p class="lead">One click. A clean, faithful <code>.md</code> file — exactly what Claude wrote.</p>
+      <h1>Export any Claude, ChatGPT or Vibe chat to perfect Markdown</h1>
+      <p class="lead">One click. A clean, faithful <code>.md</code> file — exactly what the assistant wrote.</p>
       <p class="trust">🔒 <strong>Private by design</strong> · runs in your browser · no servers · no tracking · open source</p>
-      <a id="bm" class="drag" href="#" aria-disabled="true">📥 Claude Export</a>
+      <a id="bm" class="drag" href="#" aria-disabled="true">📥 Chat Export</a>
       <p class="hint" id="hint">Preparing the latest version…</p>
     </header>
 
@@ -146,18 +146,18 @@
 
     <h2 class="sec">Get started in 10 seconds</h2>
     <ol class="steps">
-      <li><strong>Drag</strong> the “📥 Claude Export” button above onto your browser's bookmarks bar.</li>
-      <li>Open any conversation on <a href="https://claude.ai" target="_blank" rel="noopener">claude.ai</a>.</li>
+      <li><strong>Drag</strong> the “📥 Chat Export” button above onto your browser's bookmarks bar.</li>
+      <li>Open any conversation on <a href="https://claude.ai" target="_blank" rel="noopener">claude.ai</a>, <a href="https://chatgpt.com" target="_blank" rel="noopener">chatgpt.com</a> or <a href="https://chat.mistral.ai" target="_blank" rel="noopener">chat.mistral.ai</a> (ChatGPT and Vibe support is experimental).</li>
       <li><strong>Click the bookmark</strong> — a brief status appears and your <code>.md</code> file downloads automatically.</li>
     </ol>
 
     <p class="update"><strong>Always up to date:</strong> the bookmarklet checks for updates and flags when a newer version is available — just re-drag (or re-copy) to grab it.</p>
 
-    <p class="note privacy">🔒 <strong>Private by design — no servers, no tracking.</strong> This is just an open-source script that runs in your browser; your conversation is read from Claude's own site (the one you're already on) over your existing session, processed locally, and never uploaded anywhere. Nothing you export is sent to us or anyone else.</p>
+    <p class="note privacy">🔒 <strong>Private by design — no servers, no tracking.</strong> This is just an open-source script that runs in your browser; your conversation is read from the chat app's own site (the one you're already on) over your existing session, processed locally, and never uploaded anywhere. Nothing you export is sent to us or anyone else.</p>
 
     <details>
       <summary>Can't drag it? Add the bookmark manually</summary>
-      <p>Create a new bookmark, then paste the copied code as its <em>URL/Address</em>. Open a Claude conversation and click the bookmark.</p>
+      <p>Create a new bookmark, then paste the copied code as its <em>URL/Address</em>. Open a conversation on one of those sites and click the bookmark.</p>
       <p><button class="copy" id="copy" disabled>Copy bookmarklet code</button> <span id="copied"></span></p>
     </details>
 

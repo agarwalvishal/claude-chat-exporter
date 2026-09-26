@@ -20,8 +20,8 @@ Claude's internal API changes without notice, and someone has to keep up.<br>
 The easiest way — no console, no copy-paste, works for non-developers too:
 
 1. Open the **[one-click install page »](https://agarwalvishal.github.io/claude-chat-exporter/)**
-2. **Drag** the “📥 Claude Export” button onto your browser's bookmarks bar.
-3. Open any conversation on [claude.ai](https://claude.ai) and **click the bookmark** — your `.md` file downloads automatically.
+2. **Drag** the “📥 Chat Export” button onto your browser's bookmarks bar.
+3. Open any conversation on [claude.ai](https://claude.ai) — or, experimentally, [ChatGPT or Mistral Vibe](#chatgpt--mistral-vibe-experimental) — and **click the bookmark** — your `.md` file downloads automatically.
 
 The bookmarklet is just this repository's open-source script wrapped into a link. It runs entirely in your browser — the tool has **no server of its own**, the only network call for your conversation is to Claude's own backend, and it stores nothing. The bookmarklet also checks for updates and shows an “update available” notice when a newer version is published, so you can re-drag to grab the latest.
 
