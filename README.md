@@ -90,9 +90,9 @@ The same script also exports conversations from **ChatGPT** ([chatgpt.com](https
 The output is the same frontmatter-plus-`#`-per-turn document, with turns headed `# ChatGPT — …` or `# Vibe — …`. What differs:
 
 - **ChatGPT** - Follows the branch on screen, like Claude. Exports the answer text; skips reasoning ("thoughts"), tool runs (code, browsing), canvas documents and web-search citation markers. Uploaded files are listed by name. Team/Enterprise workspaces are supported.
-- **Mistral Vibe** - Exports the answer text in time order. Vibe's API exposes no "current branch", so if a turn was edited or regenerated, every version is exported and the status box shows a warning. Uploaded files are not listed.
+- **Mistral Vibe** - Follows the branch on screen: for an edited or regenerated message, the version you are looking at (switch versions first to export a different one). Uploaded files and canvas documents are not exported yet.
 
-**Experimental:** both sites' APIs are undocumented, and this support is built from how other open-source exporters read them rather than tested against a live account. If something comes out wrong, the console says what — please open an issue. The one-click bookmarklet has only been verified on claude.ai.
+**Experimental:** both sites' APIs are undocumented, and this support is built from how other open-source exporters read them rather than tested against a live account. If something comes out wrong, the console says what — please open an issue. The one-click bookmarklet has been verified on claude.ai and chat.mistral.ai.
 
 ## Complete Element Support
 

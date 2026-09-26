@@ -517,23 +517,26 @@ function setupClaudeExporter() {
       cursor = Array.isArray(page) ? null : page.nextCursor;
     } while (cursor && !cursors.has(cursor)); // a repeated cursor would loop forever
 
-    // No current-branch pointer is known, so time order it is. Edited or
-    // regenerated turns may then appear more than once — flag rather than guess.
-    items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-    const turns = new Set();
-    let repeated = false;
-    for (const m of items) {
-      if (typeof m.turn !== 'number') continue;
-      const key = `${m.role}:${m.turn}`;
-      if (turns.has(key)) repeated = true;
-      turns.add(key);
+    // Versions: an edited or regenerated message keeps its `id` and gains a
+    // `version`; `status: 'active'` marks the one on screen, and a reply points
+    // at the exact version it answers via `parentId` + `parentVersion`. Walking
+    // from the root through active versions yields the branch on screen.
+    let path = [];
+    for (let parent = null; ;) {
+      const next = items.find(m => m.status === 'active' && (parent
+        ? m.parentId === parent.id && m.parentVersion === parent.version
+        : !m.parentId));
+      if (!next || path.includes(next)) break;
+      path.push(next);
+      parent = next;
     }
-    if (repeated) {
-      warn('Some turns appear in several versions (edited or regenerated) — all were exported in time order, since the exporter cannot tell which one is on screen.');
+    if (!path.length) {
+      warn('Could not resolve the current branch (version links missing) — falling back to time order, which may include edited or regenerated versions.');
+      path = [...items].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     }
 
     const messages = [];
-    for (const m of items) {
+    for (const m of path) {
       if (m.role !== 'user' && m.role !== 'assistant') continue;
       const text = (typeof m.content === 'string' && m.content.trim())
         || (m.contentChunks || []).filter(c => c?.type === 'text').map(c => c.text).join('').trim();
