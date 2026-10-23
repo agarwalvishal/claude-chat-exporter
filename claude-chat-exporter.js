@@ -23,7 +23,7 @@ function setupClaudeExporter() {
   const skippedTools = new Set();
 
   function downloadMarkdown(content, filename) {
-    const blob = new Blob([content], { type: 'text/markdown' });
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     try {
